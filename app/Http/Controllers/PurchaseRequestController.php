@@ -1,0 +1,1677 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\PurchaseRequest;
+use App\Models\PrItem;
+use App\Models\Approval;
+use App\Models\Department;
+use App\Models\Uom;
+use App\Models\Purpose;
+use App\Models\Setting;
+use App\Models\PrItemDelivery;
+use Illuminate\Http\Request;
+
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\PurchaseRequestExport;
+use App\Notifications\ItemDeliveredNotification;
+use App\Notifications\PrSubmittedNotification;
+use App\Notifications\PrStatusUpdatedNotification;
+use App\Notifications\PrActionRequiredNotification;
+use App\Models\User;
+use App\Notifications\QueuedMailWrapper;
+use Illuminate\Support\Facades\Notification;
+
+
+class PurchaseRequestController extends Controller
+{
+    private function getPurposesFromFinance()
+    {
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return Purpose::all();
+        }
+
+        $deptName = Auth::user()->department?->name;
+        $categoriesUrl = str_replace('/check', '/categories', $apiUrl);
+        if ($deptName) {
+            $categoriesUrl .= '?department_name=' . urlencode($deptName);
+        }
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->withHeaders([
+                    'Accept' => 'application/json',
+                    'X-API-KEY' => $apiKey,
+                ])
+                ->timeout(3)
+                ->withOptions([
+                    'curl' => [
+                        CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_SSL_VERIFYHOST => false,
+                        CURLOPT_CONNECTTIMEOUT => 2,
+                        CURLOPT_TIMEOUT => 3,
+                    ],
+                ])
+                ->get($categoriesUrl);
+
+            if ($response->successful()) {
+                $body = $response->json();
+                if (isset($body['status']) && $body['status'] === 'success' && isset($body['data'])) {
+                    return collect($body['data'])->map(function ($name) {
+                        return (object) ['name' => $name];
+                    });
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::warning('Failed to fetch purposes from Finance API: ' . $e->getMessage());
+        }
+
+        return Purpose::all();
+    }
+
+    private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null)
+    {
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return ['status' => 'success', 'is_allowed' => true];
+        }
+
+        $deptId = $departmentId ?? (Auth::check() ? Auth::user()->department_id : null);
+        $deptName = $departmentName ?? (Auth::check() ? Auth::user()->department?->name : null);
+
+        try {
+            $headers = [
+                'Accept' => 'application/json',
+                'X-API-KEY' => $apiKey,
+            ];
+
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->withHeaders($headers)
+                ->timeout(8)
+                ->withOptions([
+                    'curl' => [
+                        CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_SSL_VERIFYHOST => false,
+                        CURLOPT_CONNECTTIMEOUT => 5,
+                        CURLOPT_TIMEOUT => 8,
+                    ],
+                ])
+                ->post($apiUrl, [
+                    'department_id' => $deptId,
+                    'department_name' => $deptName,
+                    'category_name' => $purpose,
+                    'month' => date('Y-m', strtotime($requestDate)),
+                    'requested_amount' => $requestedAmount,
+                ]);
+
+            if ($response->successful()) {
+                return $response->json();
+            }
+
+            $errorMessage = 'Gagal memvalidasi anggaran ke sistem Finance. HTTP Code: ' . $response->status();
+            $jsonResponse = $response->json();
+            if ($jsonResponse && isset($jsonResponse['message'])) {
+                $errorMessage = 'Finance API: ' . $jsonResponse['message'];
+            }
+
+            return [
+                'status' => 'error',
+                'is_allowed' => false,
+                'message' => $errorMessage
+            ];
+        } catch (\Exception $e) {
+            return [
+                'status' => 'error',
+                'is_allowed' => false,
+                'message' => 'Terjadi kesalahan koneksi API Finance: ' . $e->getMessage()
+            ];
+        }
+    }
+
+    public function checkBudget(Request $request)
+    {
+        $request->validate([
+            'request_date' => 'required|date',
+            'department_id' => 'nullable|integer',
+            'purpose' => 'nullable|string',
+            'requested_amount' => 'nullable|numeric',
+            'items' => 'nullable|array',
+            'items.*.purpose' => 'required_with:items|string',
+            'items.*.amount' => 'required_with:items|numeric',
+        ]);
+
+        if (!Setting::get('finance_api_url', env('FINANCE_API_URL')) || !Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'))) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Konfigurasi API Finance belum lengkap.',
+                'is_allowed' => true
+            ], 200);
+        }
+
+        $departmentId = $request->department_id;
+        $departmentName = null;
+        if ($departmentId) {
+            $dept = Department::find($departmentId);
+            if ($dept) {
+                $departmentName = $dept->name;
+            }
+        }
+
+        if ($request->has('items') && is_array($request->items)) {
+            $purposeAmounts = [];
+            foreach ($request->items as $item) {
+                $p = $item['purpose'];
+                $amt = (float) $item['amount'];
+                if (empty($p))
+                    continue;
+                $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
+            }
+
+            $results = [];
+            $allAllowed = true;
+            $firstErrorMessage = null;
+
+            foreach ($purposeAmounts as $purpose => $amount) {
+                $res = $this->validateBudgetWithFinance($purpose, $request->request_date, $amount, $departmentId, $departmentName);
+                $results[$purpose] = [
+                    'is_allowed' => $res['is_allowed'] ?? true,
+                    'remaining_budget' => $res['remaining_budget'] ?? null,
+                    'budget_limit' => $res['budget_limit'] ?? null,
+                    'current_usage' => $res['current_usage'] ?? null,
+                    'message' => $res['message'] ?? null,
+                ];
+                if (!($res['is_allowed'] ?? true)) {
+                    $allAllowed = false;
+                    if (!$firstErrorMessage) {
+                        $firstErrorMessage = $res['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.";
+                    }
+                }
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'is_allowed' => $allAllowed,
+                'message' => $firstErrorMessage,
+                'results' => $results
+            ]);
+        }
+
+        $result = $this->validateBudgetWithFinance(
+            $request->purpose,
+            $request->request_date,
+            $request->requested_amount ?? 0,
+            $departmentId,
+            $departmentName
+        );
+
+        return response()->json($result);
+    }
+
+    public function index(Request $request)
+    {
+        $this->authorize('view pr');
+        $user = Auth::user();
+        $query = PurchaseRequest::with(['user', 'department', 'items'])
+            ->where('status', '!=', 'draft');
+
+
+        if ($user->hasRole('user') && !$user->hasAnyRole(['operational_manager', 'manager_fat', 'general_manager', 'procurement', 'superadmin'])) {
+            $query->where('user_id', $user->id);
+        } else {
+            if (!$request->boolean('awaiting_approval')) {
+                $query->where(function ($q) use ($user) {
+                    $q->where('user_id', $user->id); // always can see their own
+
+                    if ($user->hasRole('superadmin') || $user->hasRole('procurement') || $user->hasRole('general_manager')) {
+                        $q->orWhereRaw('1=1'); // can see all
+                    } else {
+                        if ($user->hasRole('operational_manager')) {
+                            $q->orWhere('pr_type', 'operational');
+                        }
+                        if ($user->hasRole('manager_fat')) {
+                            $q->orWhere('pr_type', 'non_operational');
+                        }
+                    }
+                });
+            }
+        }
+
+        // Search
+        $this->applySearchFilter($query, $request->search);
+
+        // Awaiting Approval Filter
+        if ($request->boolean('awaiting_approval')) {
+            if ($user->hasRole('superadmin')) {
+                $query->whereIn('status', ['pending', 'approved_om', 'approved_gm']);
+            } else {
+                $query->where(function ($q) use ($user) {
+                    if ($user->hasRole('operational_manager')) {
+                        $q->orWhere(function ($subQ) use ($user) {
+                            $subQ->where('status', 'pending')
+                                ->where('pr_type', 'operational');
+                        });
+                    }
+                    if ($user->hasRole('manager_fat')) {
+                        $q->orWhere(function ($subQ) {
+                            $subQ->where('status', 'pending')
+                                ->where('pr_type', 'non_operational');
+                        });
+                    }
+                    if ($user->hasRole('general_manager')) {
+                        $q->orWhere('status', 'approved_om');
+                    }
+                    if ($user->hasRole('procurement')) {
+                        $q->orWhere('status', 'approved_gm');
+                    }
+                });
+            }
+        }
+
+
+        // Department Filter
+        if ($request->filled('department_id')) {
+            $query->where('department_id', $request->department_id);
+        }
+
+        // Status Filter
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
+        $departments = Department::all();
+
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments'));
+    }
+
+
+    public function create()
+    {
+        if (!Auth::user()->department_id) {
+            return redirect()->route('dashboard')->with('error', 'Akun Anda belum terhubung dengan Departemen apa pun. Silakan hubungi admin.');
+        }
+        $departments = Department::where('is_active', true)->get();
+        $uoms = Uom::all();
+        $purposes = $this->getPurposesFromFinance();
+        $masterItems = \App\Models\MasterItem::orderBy('name')->get();
+        return view('purchase_requests.create', compact('departments', 'uoms', 'purposes', 'masterItems'));
+    }
+
+
+    public function store(Request $request)
+    {
+        \Log::info('PR Store attempt', $request->all());
+
+        if (!Auth::user()->department_id) {
+            return redirect()->back()->with('error', 'Akun Anda belum terhubung dengan Departemen apa pun.')->withInput();
+        }
+
+        $purposeAmounts = [];
+        if ($request->has('items') && is_array($request->items)) {
+            foreach ($request->items as $item) {
+                $p = $item['purpose'] ?? '';
+                $amt = (float) ($item['quantity'] ?? 0) * (float) ($item['estimated_price'] ?? 0);
+                $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
+            }
+        }
+
+        $isDraft = $request->action === 'draft';
+        if (!$isDraft) {
+            foreach ($purposeAmounts as $purpose => $requestedAmount) {
+                if (empty($purpose))
+                    continue;
+                $budgetCheck = $this->validateBudgetWithFinance($purpose, $request->request_date, $requestedAmount);
+                if (isset($budgetCheck['is_allowed']) && $budgetCheck['is_allowed'] === false) {
+                    return redirect()->back()->with('error', $budgetCheck['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.")->withInput();
+                }
+            }
+        }
+
+        \DB::beginTransaction();
+        try {
+            $request->validate([
+                'request_date' => 'required|date',
+                'pr_type' => 'required|in:operational,non_operational',
+                'items' => 'required|array|min:1',
+                'items.*.purpose' => 'required|string|max:255',
+                'items.*.item_name' => 'required|string|max:255',
+                'items.*.manual_item_name' => 'nullable|string|max:255',
+                'items.*.quantity' => 'required|numeric|min:0.01',
+                'items.*.uom' => 'required|string|max:50',
+                'items.*.manual_uom' => 'nullable|string|max:50',
+                'items.*.due_date' => 'nullable|string|max:255',
+                'items.*.description' => 'nullable|string',
+                'items.*.attachment' => 'nullable|file|max:2048',
+            ]);
+
+            $isDraft = $request->action === 'draft';
+
+            $uniquePurposes = collect($request->items)->pluck('purpose')->filter()->unique()->implode(', ');
+
+            $purchaseRequest = PurchaseRequest::create([
+                'user_id' => Auth::id(),
+                'department_id' => Auth::user()->department_id,
+                'request_date' => $request->request_date,
+                'purpose' => $uniquePurposes ?: 'Multi-purpose',
+                'pr_type' => $request->pr_type,
+                'status' => $isDraft ? 'draft' : 'pending',
+                'total_amount' => 0,
+            ]);
+
+
+            $totalAmount = 0;
+            foreach ($request->items as $item) {
+                $attachmentPath = null;
+                if (isset($item['attachment']) && $item['attachment']->isValid()) {
+                    $attachmentPath = $item['attachment']->store('pr-attachments', 'public');
+                }
+
+                $itemTotal = ($item['estimated_price'] ?? 0) * $item['quantity'];
+                $totalAmount += $itemTotal;
+
+                $finalItemName = $item['item_name'] === 'other' ? $item['manual_item_name'] : $item['item_name'];
+                $finalUom = $item['uom'] === 'other' ? $item['manual_uom'] : $item['uom'];
+
+                PrItem::create([
+                    'purchase_request_id' => $purchaseRequest->id,
+                    'item_name' => $finalItemName,
+                    'description' => $item['description'] ?? null,
+                    'quantity' => $item['quantity'],
+                    'uom' => $finalUom,
+                    'estimated_price' => $item['estimated_price'] ?? 0,
+                    'total_price' => $itemTotal,
+                    'due_date' => $item['due_date'] ?? null,
+                    'attachment' => $attachmentPath,
+                    'status' => 'pending',
+                    'purpose' => $item['purpose'] ?? null,
+                ]);
+            }
+
+            $purchaseRequest->update(['total_amount' => $totalAmount]);
+
+            if (!$isDraft) {
+                // Create initial approval record based on PR type
+                $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+                $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+
+                Approval::create([
+                    'purchase_request_id' => $purchaseRequest->id,
+                    'approver_id' => null, // Will be assigned when someone approves
+                    'approver_role' => $approverRole,
+                    'approval_type' => $approvalType,
+                    'status' => 'pending',
+                ]);
+            }
+
+
+            \DB::commit();
+
+            if (!$isDraft) {
+                // Notify Management
+                $managers = $this->getSharedRecipients($purchaseRequest);
+
+                \Log::info('PR Submitted. Notifying managers:', [
+                    'pr_id' => $purchaseRequest->id,
+                    'dept_id' => $purchaseRequest->department_id,
+                    'notified_users' => $managers->pluck('name', 'id')->toArray()
+                ]);
+
+                if ($managers->isNotEmpty()) {
+                    Notification::send($managers, new PrSubmittedNotification($purchaseRequest));
+                    Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                }
+            }
+
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('success', 'Purchase Request created successfully.');
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR Store failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal menyimpan PR: ' . $e->getMessage())->withInput();
+        }
+    }
+
+    public function show(PurchaseRequest $purchaseRequest)
+    {
+        $this->authorize('view pr', $purchaseRequest);
+
+        $purchaseRequest->load(['items.deliveries', 'approvals', 'user', 'department']);
+        return view('purchase_requests.show', compact('purchaseRequest'));
+    }
+
+    public function edit(PurchaseRequest $purchaseRequest)
+    {
+        $this->authorize('edit pr', $purchaseRequest);
+
+        if (!$purchaseRequest->isEditable()) {
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('error', 'This PR is not in an editable state.');
+        }
+
+        $departments = Department::where('is_active', true)->get();
+        $uoms = Uom::all();
+        $purposes = $this->getPurposesFromFinance();
+        $masterItems = \App\Models\MasterItem::orderBy('name')->get();
+        $isPending = $purchaseRequest->status === 'pending';
+        return view('purchase_requests.edit', compact('purchaseRequest', 'departments', 'uoms', 'purposes', 'isPending', 'masterItems'));
+    }
+
+
+
+    public function update(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        \Log::info('PR Update attempt', ['id' => $purchaseRequest->id, 'data' => $request->all()]);
+        $this->authorize('edit pr', $purchaseRequest);
+
+        $purposeAmounts = [];
+        if ($request->has('items') && is_array($request->items)) {
+            foreach ($request->items as $item) {
+                if (isset($item['id'])) {
+                    $existingItem = PrItem::find($item['id']);
+                    $isRejected = $existingItem ? str_starts_with($existingItem->status, 'rejected') : false;
+                    $isDraft = $purchaseRequest->status === 'draft';
+                    $isPending = $existingItem ? $existingItem->status === 'pending' : false;
+                    $canEditItem = $isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable());
+                    if (!$canEditItem && $existingItem) {
+                        $p = $existingItem->purpose;
+                        $amt = (float) $existingItem->total_price;
+                        $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
+                        continue;
+                    }
+                }
+                $p = $item['purpose'] ?? '';
+                $amt = (float) ($item['quantity'] ?? 0) * (float) ($item['estimated_price'] ?? 0);
+                $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
+            }
+        }
+
+        $isDraft = $request->action === 'draft';
+        if (!$isDraft) {
+            foreach ($purposeAmounts as $purpose => $requestedAmount) {
+                if (empty($purpose))
+                    continue;
+                $budgetCheck = $this->validateBudgetWithFinance($purpose, $request->request_date, $requestedAmount);
+                if (isset($budgetCheck['is_allowed']) && $budgetCheck['is_allowed'] === false) {
+                    return redirect()->back()->with('error', $budgetCheck['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.")->withInput();
+                }
+            }
+        }
+
+        \DB::beginTransaction();
+        try {
+            $request->validate([
+                'request_date' => 'required|date',
+                'pr_type' => 'required|in:operational,non_operational',
+                'items' => 'required|array|min:1',
+                'items.*.purpose' => 'required|string|max:255',
+                'items.*.item_name' => 'required|string|max:255',
+                'items.*.manual_item_name' => 'nullable|string|max:255',
+                'items.*.quantity' => 'required|numeric|min:0.01',
+                'items.*.uom' => 'required|string|max:50',
+                'items.*.manual_uom' => 'nullable|string|max:50',
+                'items.*.due_date' => 'nullable|string|max:255',
+                'items.*.description' => 'nullable|string',
+            ]);
+
+            // Update existing items or create new ones
+            $totalAmount = 0;
+            $submittedItemIds = [];
+
+            foreach ($request->items as $itemData) {
+                $attachmentPath = null;
+                if (isset($itemData['attachment']) && $itemData['attachment']->isValid()) {
+                    $attachmentPath = $itemData['attachment']->store('pr-attachments', 'public');
+                }
+
+                if (isset($itemData['id'])) {
+                    $item = PrItem::where('id', $itemData['id'])
+                        ->where('purchase_request_id', $purchaseRequest->id)
+                        ->first();
+
+                    if ($item) {
+                        $submittedItemIds[] = $item->id;
+
+                        $isRejected = str_starts_with($item->status, 'rejected');
+                        $isDraft = $purchaseRequest->status === 'draft';
+                        $isPending = $item->status === 'pending';
+
+                        $canEditItem = $isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable());
+
+                        $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
+                        $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
+
+                        if ($canEditItem) {
+                            $itemTotal = ($itemData['estimated_price'] ?? 0) * $itemData['quantity'];
+                            $totalAmount += $itemTotal;
+
+                            $item->update([
+                                'item_name' => $finalItemName,
+                                'description' => $itemData['description'] ?? null,
+                                'quantity' => $itemData['quantity'],
+                                'uom' => $finalUom,
+                                'estimated_price' => $itemData['estimated_price'] ?? 0,
+                                'total_price' => $itemTotal,
+                                'due_date' => $itemData['due_date'] ?? null,
+                                'attachment' => $attachmentPath ?? $item->attachment,
+                                'status' => 'pending',
+                                'revision_count' => $item->revision_count + ($isRejected ? 1 : 0),
+                                'reject_reason' => null,
+                                'rejected_by' => null,
+                                'rejected_at' => null,
+                                'purpose' => $itemData['purpose'] ?? null,
+                            ]);
+                        } else {
+                            $totalAmount += $item->total_price;
+                        }
+                    }
+                } else {
+                    $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
+                    $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
+                    $itemTotal = ($itemData['estimated_price'] ?? 0) * $itemData['quantity'];
+                    $totalAmount += $itemTotal;
+
+                    $newItem = PrItem::create([
+                        'purchase_request_id' => $purchaseRequest->id,
+                        'item_name' => $finalItemName,
+                        'description' => $itemData['description'] ?? null,
+                        'quantity' => $itemData['quantity'],
+                        'uom' => $finalUom,
+                        'estimated_price' => $itemData['estimated_price'] ?? 0,
+                        'total_price' => $itemTotal,
+                        'due_date' => $itemData['due_date'] ?? null,
+                        'attachment' => $attachmentPath,
+                        'status' => 'pending',
+                        'purpose' => $itemData['purpose'] ?? null,
+                    ]);
+                    $submittedItemIds[] = $newItem->id;
+                }
+            }
+
+            // Remove items that are NOT present in the submission (deleted by user)
+            $purchaseRequest->items()
+                ->whereNotIn('id', $submittedItemIds)
+                ->where(function ($q) use ($purchaseRequest) {
+                    if ($purchaseRequest->status === 'draft') {
+                        return;
+                    }
+                    $q->whereIn('status', ['pending', 'rejected_om', 'rejected_gm', 'rejected_proc']);
+                })
+                ->delete();
+
+            $isDraft = $request->action === 'draft';
+
+            $uniquePurposes = collect($request->items)->pluck('purpose')->filter()->unique()->implode(', ');
+
+            $purchaseRequest->update([
+                'request_date' => $request->request_date,
+                'purpose' => $uniquePurposes ?: 'Multi-purpose',
+                'pr_type' => $request->pr_type,
+                'total_amount' => $totalAmount,
+                'status' => $isDraft ? 'draft' : 'pending',
+            ]);
+
+            if (!$isDraft) {
+                // Ensure Level 1 approval record exists if not already there
+                $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+                $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+
+                $hasLevel1Approval = $purchaseRequest->approvals()->where('approver_role', $approverRole)->exists();
+                if (!$hasLevel1Approval) {
+                    Approval::create([
+                        'purchase_request_id' => $purchaseRequest->id,
+                        'approver_role' => $approverRole,
+                        'approval_type' => $approvalType,
+                        'status' => 'pending',
+                    ]);
+                }
+
+                // Notify Management
+                $managers = $this->getSharedRecipients($purchaseRequest);
+
+                \Log::info('PR Updated/Re-submitted. Notifying managers:', [
+                    'pr_id' => $purchaseRequest->id,
+                    'dept_id' => $purchaseRequest->department_id,
+                    'notified_users' => $managers->pluck('name', 'id')->toArray()
+                ]);
+
+                if ($managers->isNotEmpty()) {
+                    Notification::send($managers, new PrSubmittedNotification($purchaseRequest));
+                    Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                }
+            }
+
+
+
+
+
+            \DB::commit();
+
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('success', 'Purchase Request updated successfully.');
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR Update failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal update PR: ' . $e->getMessage())->withInput();
+        }
+    }
+
+    public function approveItem(Request $request, PrItem $item)
+    {
+        $request->validate([
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $pr = $item->purchaseRequest;
+
+        $isLevel1Approver = false;
+        if ($pr->pr_type === 'non_operational') {
+            $isLevel1Approver = $user->hasRole('manager_fat');
+        } else {
+            $isLevel1Approver = $user->hasRole('operational_manager');
+        }
+
+        if (($isLevel1Approver || $user->hasRole('superadmin')) && $item->status === 'pending') {
+            $item->update(['status' => 'approved_om']);
+
+            $approverRole = $pr->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+            $approvalType = $pr->pr_type === 'non_operational' ? 'fatm' : 'om';
+
+            Approval::create([
+                'purchase_request_id' => $item->purchase_request_id,
+                'pr_item_id' => $item->id,
+                'approver_id' => $user->id,
+                'approver_role' => $approverRole,
+                'approval_type' => $approvalType,
+                'status' => 'approved',
+                'notes' => $request->notes,
+                'approved_at' => now(),
+            ]);
+
+            // Evaluate PR advancement
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+
+            // Notify requester + Superadmins + Level 1 Manager
+            $recipients = $this->getSharedRecipients($item->purchaseRequest, $item->purchaseRequest->user);
+            $managerTitle = $pr->pr_type === 'non_operational' ? 'Manager FAT' : 'Operational Manager';
+            $message = "Item '{$item->item_name}' telah disetujui oleh {$managerTitle}.";
+            if ($request->filled('notes')) {
+                $message .= " Catatan: {$request->notes}";
+            }
+            Notification::send($recipients, new PrStatusUpdatedNotification($item->purchaseRequest, $message));
+            Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($item->purchaseRequest, $message)));
+
+
+        } elseif (($user->hasRole('general_manager') || $user->hasRole('superadmin')) && $item->status === 'approved_om') {
+            $item->update(['status' => 'approved_gm']);
+
+            Approval::create([
+                'purchase_request_id' => $item->purchase_request_id,
+                'pr_item_id' => $item->id,
+                'approver_id' => $user->id,
+                'approver_role' => 'general_manager',
+                'approval_type' => 'gm',
+                'status' => 'approved',
+                'notes' => $request->notes,
+                'approved_at' => now(),
+            ]);
+
+            // Evaluate PR advancement
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+
+
+        } elseif (($user->hasRole('procurement') || $user->hasRole('superadmin')) && $item->status === 'approved_gm') {
+            $item->update(['status' => 'approved_proc']);
+
+            // Notify requester + Superadmins + Level 1 Manager
+            $recipients = $this->getSharedRecipients($item->purchaseRequest, $item->purchaseRequest->user);
+            $message = "Item '{$item->item_name}' telah disetujui oleh Procurement.";
+            if ($request->filled('notes')) {
+                $message .= " Catatan: {$request->notes}";
+            }
+            Notification::send($recipients, new PrStatusUpdatedNotification($item->purchaseRequest, $message));
+            Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($item->purchaseRequest, $message)));
+
+            Approval::create([
+
+                'purchase_request_id' => $item->purchase_request_id,
+                'pr_item_id' => $item->id,
+                'approver_id' => $user->id,
+                'approver_role' => 'procurement',
+                'approval_type' => 'procurement',
+                'status' => 'approved',
+                'notes' => $request->notes,
+                'approved_at' => now(),
+            ]);
+
+            // Evaluate PR advancement
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+        } else {
+            return redirect()->back()->with('error', 'Status item tidak dapat disetujui saat ini (Invalid approval action).');
+        }
+
+        return redirect()->back()->with('success', 'Item approved successfully.');
+    }
+
+    public function rejectItem(Request $request, PrItem $item)
+    {
+        $request->validate([
+            'reject_reason' => 'required|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $pr = $item->purchaseRequest;
+
+        $isLevel1Approver = false;
+        if ($pr->pr_type === 'non_operational') {
+            $isLevel1Approver = $user->hasRole('manager_fat');
+        } else {
+            $isLevel1Approver = $user->hasRole('operational_manager');
+        }
+
+        if (($isLevel1Approver || $user->hasRole('superadmin')) && $item->status === 'pending') {
+            $status = 'rejected_om';
+            $approverRole = $pr->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+        } elseif (($user->hasRole('general_manager') || $user->hasRole('superadmin')) && $item->status === 'approved_om') {
+            $status = 'rejected_gm';
+            $approverRole = 'general_manager';
+        } elseif (($user->hasRole('procurement') || $user->hasRole('superadmin')) && $item->status === 'approved_gm') {
+            $status = 'rejected_proc';
+            $approverRole = 'procurement';
+        } else {
+            return redirect()->back()->with('error', 'Invalid rejection action.');
+        }
+
+        $item->update([
+            'status' => $status,
+            'reject_reason' => $request->reject_reason,
+            'rejected_by' => $user->id,
+            'rejected_at' => now(),
+        ]);
+
+        if ($approverRole === 'operational_manager' && $item->purchaseRequest->pr_type === 'non_operational') {
+            $approverRole = 'manager_fat';
+        }
+
+        // Notify requester + Superadmins + Level 1 Manager
+        $recipients = $this->getSharedRecipients($item->purchaseRequest, $item->purchaseRequest->user);
+        Notification::send($recipients, new PrStatusUpdatedNotification($item->purchaseRequest, "Item '{$item->item_name}' ditolak. Catatan validasi: " . $request->reject_reason));
+        Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($item->purchaseRequest, "Item '{$item->item_name}' ditolak. Catatan validasi: " . $request->reject_reason)));
+
+
+
+        Approval::create([
+            'purchase_request_id' => $item->purchase_request_id,
+            'pr_item_id' => $item->id,
+            'approver_id' => $user->id,
+            'approver_role' => $approverRole,
+            'approval_type' => $item->purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status),
+            'status' => 'rejected',
+            'notes' => $request->reject_reason,
+            'approved_at' => now(),
+        ]);
+
+        // Evaluate PR advancement
+        $this->checkAndAdvancePrStatus($item->purchaseRequest);
+
+        return redirect()->back()->with('success', 'Item rejected successfully.');
+    }
+
+    public function sendValidationNote(Request $request, PrItem $item)
+    {
+        $request->validate([
+            'notes' => 'required|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $role = $user->getRoleNames()->first();
+
+        $canSend = false;
+        $approvalType = 'unknown';
+
+        if ($item->purchaseRequest->user_id == $user->id) {
+            $canSend = true;
+            $approvalType = 'requester';
+        } elseif ($role === 'superadmin' && $item->status === 'pending') {
+            $canSend = true;
+            $approvalType = $item->purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+            $role = $item->purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+        } elseif ($role === 'superadmin' && $item->status === 'approved_om') {
+            $canSend = true;
+            $approvalType = 'gm';
+            $role = 'general_manager';
+        } elseif ($role === 'superadmin' && $item->status === 'approved_gm') {
+            $canSend = true;
+            $approvalType = 'procurement';
+            $role = 'procurement';
+        } elseif ($role === 'operational_manager' && $item->status === 'pending' && $item->purchaseRequest->pr_type === 'operational') {
+            $canSend = true;
+            $approvalType = 'om';
+        } elseif ($role === 'manager_fat' && $item->status === 'pending' && $item->purchaseRequest->pr_type === 'non_operational') {
+            $canSend = true;
+            $approvalType = 'fatm';
+        } elseif ($role === 'general_manager' && $item->status === 'approved_om') {
+            $canSend = true;
+            $approvalType = 'gm';
+        } elseif ($role === 'procurement' && $item->status === 'approved_gm') {
+            $canSend = true;
+            $approvalType = 'procurement';
+        }
+
+        if (!$canSend) {
+            return redirect()->back()->with('error', 'Anda tidak dapat mengirim catatan pada status item ini.');
+        }
+
+        Approval::create([
+            'purchase_request_id' => $item->purchase_request_id,
+            'pr_item_id' => $item->id,
+            'approver_id' => $user->id,
+            'approver_role' => $role,
+            'approval_type' => $approvalType,
+            'status' => 'pending',
+            'notes' => $request->notes,
+            'approved_at' => now(),
+        ]);
+
+        $recipients = $this->getSharedRecipients($item->purchaseRequest, $item->purchaseRequest->user);
+
+        $senderName = $approvalType === 'requester' ? "Requester ({$user->name})" : strtoupper(str_replace('_', ' ', $role));
+
+        Notification::send(
+            $recipients,
+            new PrStatusUpdatedNotification(
+                $item->purchaseRequest,
+                "Catatan untuk item '{$item->item_name}' dari " . $senderName . ": {$request->notes}"
+            )
+        );
+        Notification::send(
+            $recipients,
+            new QueuedMailWrapper(new PrStatusUpdatedNotification(
+                $item->purchaseRequest,
+                "Catatan untuk item '{$item->item_name}' dari " . $senderName . ": {$request->notes}"
+            ))
+        );
+
+        return redirect()->back()->with('success', 'Catatan berhasil dikirim.');
+    }
+
+    public function reviseItem(Request $request, PrItem $item)
+    {
+        $user = Auth::user();
+        $oldPr = $item->purchaseRequest;
+
+        // Only the owner or superadmin can revise
+        if ($user->id !== $oldPr->user_id && !$user->hasRole('superadmin')) {
+            return redirect()->back()->with('error', 'Unauthorized action.');
+        }
+
+        // Get all rejected items for this PR
+        $rejectedItems = $oldPr->items()
+            ->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])
+            ->get();
+
+        if ($rejectedItems->isEmpty()) {
+            return redirect()->back()->with('error', 'No rejected items found to revise.');
+        }
+
+        \DB::beginTransaction();
+        try {
+            // 1. Create NEW Purchase Request
+            $newPr = PurchaseRequest::create([
+                'user_id' => $oldPr->user_id,
+                'department_id' => $oldPr->department_id,
+                'request_date' => now(),
+                'purpose' => $oldPr->purpose,
+                'pr_type' => $oldPr->pr_type,
+                'status' => 'draft', // Set to draft so it is editable
+                'notes' => 'Bulk Revision from ' . $oldPr->pr_number,
+
+                'total_amount' => 0,
+            ]);
+
+
+            $movedItemsNames = [];
+            foreach ($rejectedItems as $rejectedItem) {
+                // 2. Move Item to New PR and Reset Status
+                $rejectedItem->update([
+                    'purchase_request_id' => $newPr->id,
+                    'status' => 'pending',
+                    'reject_reason' => null,
+                    'rejected_by' => null,
+                    'rejected_at' => null,
+                    'revision_count' => $rejectedItem->revision_count + 1,
+                ]);
+                $movedItemsNames[] = $rejectedItem->item_name;
+            }
+
+            // 3. Recalculate Totals
+            // Since prices were removed/set to 0 by user request earlier, total_amount remains 0
+            // but we follow the logic if needed
+            $newPrTotal = $newPr->items()->sum('total_price');
+            $newPr->update(['total_amount' => $newPrTotal]);
+
+            // Old PR Logic
+            $oldPrRemainingTotal = $oldPr->items()->sum('total_price');
+            $revisionNote = "\n[System] Items (" . implode(', ', $movedItemsNames) . ") revised to {$newPr->pr_number}.";
+
+            $updateData = [
+                'total_amount' => $oldPrRemainingTotal,
+                'notes' => $oldPr->notes . $revisionNote
+            ];
+
+            // Check if Old PR is empty and update status if needed
+            if ($oldPr->items()->count() == 0) {
+                $updateData['status'] = 'cancelled';
+                $updateData['notes'] .= "\n[System] PR Cancelled (All items revised).";
+            }
+
+            // Notify Management about the new revision PR
+            $managers = $this->getSharedRecipients($newPr);
+            Notification::send($managers, new PrSubmittedNotification($newPr));
+            Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($newPr)));
+
+            // Notify requester about revision + Superadmins
+            $requesterAndAdmins = User::role('superadmin')->get()->push($oldPr->user);
+            Notification::send($requesterAndAdmins, new PrStatusUpdatedNotification($newPr, "Item yang ditolak dari {$oldPr->pr_number} telah dipindahkan ke PR baru {$newPr->pr_number} untuk direvisi."));
+            Notification::send($requesterAndAdmins, new QueuedMailWrapper(new PrStatusUpdatedNotification($newPr, "Item yang ditolak dari {$oldPr->pr_number} telah dipindahkan ke PR baru {$newPr->pr_number} untuk direvisi.")));
+
+
+
+            // Update or delete old PR
+            if ($oldPr->items()->count() == 0) {
+                $oldPr->delete();
+            } else {
+                $oldPr->update($updateData);
+            }
+
+            \DB::commit();
+
+            return redirect()->route('purchase-requests.edit', $newPr)->with('success', count($rejectedItems) . ' items have been moved to a new PR. Please review and update details.');
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('Bulk Revision failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to revise items: ' . $e->getMessage());
+        }
+    }
+
+
+    public function destroy(PurchaseRequest $purchaseRequest)
+    {
+        // Check ownership/permission
+        if (auth()->id() !== $purchaseRequest->user_id && !auth()->user()->hasRole('superadmin')) {
+            return redirect()->back()->with('error', 'Unauthorized action.');
+        }
+
+        // Check deletability using model logic
+        if ($purchaseRequest->isDeletable()) {
+            $this->removePrExpensesFromFinance($purchaseRequest);
+            $purchaseRequest->delete();
+            return redirect()->route('purchase-requests.index')->with('success', 'Purchase Request has been deleted.');
+        }
+
+        return redirect()->back()->with('error', 'This PR cannot be deleted (must be Draft or truly Pending without approvals).');
+    }
+
+    public function preview(PurchaseRequest $purchaseRequest)
+    {
+        // Load items, excluding rejected ones (Show Pending, Approved, etc.)
+        $purchaseRequest->load([
+            'user',
+            'department',
+            'items' => function ($query) {
+                $query->whereNotIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'cancelled']);
+            }
+        ]);
+
+        // Removed strict check for empty items to allow viewing Draft/Pending PRs
+        // if ($purchaseRequest->items->isEmpty()) ...
+
+        return view('purchase_requests.export', [
+            'purchaseRequest' => $purchaseRequest
+        ]);
+    }
+
+    public function export(PurchaseRequest $purchaseRequest)
+    {
+        // Load items, excluding rejected ones
+        $purchaseRequest->load([
+            'user',
+            'department',
+            'items' => function ($query) {
+                $query->whereNotIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'cancelled']);
+            }
+        ]);
+
+        // Removed strict check
+
+        $pdf = PDF::loadView('purchase_requests.export', [
+            'purchaseRequest' => $purchaseRequest
+        ]);
+
+        return $pdf->download("PR-{$purchaseRequest->pr_number}.pdf");
+    }
+
+    public function exportExcel()
+    {
+        return Excel::download(new PurchaseRequestExport, 'purchase-requests.xlsx');
+    }
+
+    public function updateItemStatus(Request $request, PrItem $item)
+    {
+        $this->authorize('edit pr', $item->purchaseRequest);
+
+        $request->validate([
+            'status' => 'required|in:approved_gm,ordered,delivered,completed'
+        ]);
+
+        $updateData = ['status' => $request->status];
+        if ($request->status === 'ordered') {
+            $request->validate([
+                'po_number' => 'required|string|max:255',
+                'planned_dates' => 'required|array|min:1',
+                'planned_dates.*' => 'required|date',
+                'planned_quantities' => 'required|array|min:1',
+                'planned_quantities.*' => 'required|numeric|min:0.01',
+                'planned_notes' => 'nullable|array',
+                'planned_notes.*' => 'nullable|string',
+                'planned_attachments' => 'nullable|array',
+                'planned_attachments.*' => 'nullable|file|max:5120'
+            ]);
+
+            $totalPlanned = array_sum($request->planned_quantities);
+            if ($totalPlanned > $item->quantity) {
+                return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
+            }
+
+            $updateData['po_number'] = $request->po_number;
+            $updateData['ordered_at'] = now();
+            $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$request->po_number}.";
+        } elseif ($request->status === 'approved_gm') {
+            $updateData['processed_at'] = now();
+            $msg = "Item '{$item->item_name}' telah disetujui (Approved).";
+        } elseif ($request->status === 'delivered') {
+            $updateData['delivered_at'] = now();
+            $msg = "Item '{$item->item_name}' telah dikirim (Delivered).";
+            $item->purchaseRequest->user->notify(new ItemDeliveredNotification($item));
+        } elseif ($request->status === 'completed') {
+            $updateData['completed_at'] = now();
+            $msg = "Item '{$item->item_name}' telah selesai diproses (Completed).";
+        }
+
+        $item->update($updateData);
+
+        if ($request->status === 'ordered') {
+            // Save Delivery Plans
+            foreach ($request->planned_dates as $index => $date) {
+                $attachmentPath = null;
+                if ($request->hasFile("planned_attachments.{$index}")) {
+                    $attachmentPath = $request->file("planned_attachments.{$index}")->store('delivery_plans', 'public');
+                }
+
+                $item->deliveryPlans()->create([
+                    'planned_date' => $date,
+                    'planned_quantity' => $request->planned_quantities[$index],
+                    'notes' => $request->planned_notes[$index] ?? null,
+                    'attachment_path' => $attachmentPath,
+                    'is_active' => true,
+                    'is_rescheduled' => false,
+                ]);
+            }
+        }
+
+        // Notify requester + Superadmins + Level 1 Manager
+        $recipients = $this->getSharedRecipients($item->purchaseRequest, $item->purchaseRequest->user);
+
+        if ($request->status === 'delivered') {
+            $requesterId = $item->purchaseRequest->user->id;
+            $recipients = $recipients->reject(fn($user) => $user->id === $requesterId);
+        }
+
+        Notification::send($recipients, new PrStatusUpdatedNotification($item->purchaseRequest, $msg));
+        Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($item->purchaseRequest, $msg)));
+
+        // Sync expenses to Finance Application when item is ordered/delivered/completed
+        $this->syncPrExpensesWithFinance($item->purchaseRequest);
+
+        return redirect()->back()->with('success', 'Item status updated successfully.');
+    }
+
+    public function updateDeliveryPlans(Request $request, PrItem $item)
+    {
+        $this->authorize('edit pr', $item->purchaseRequest);
+
+        $request->validate([
+            'planned_dates' => 'required|array|min:1',
+            'planned_dates.*' => 'required|date',
+            'planned_quantities' => 'required|array|min:1',
+            'planned_quantities.*' => 'required|numeric|min:0.01',
+            'planned_notes' => 'nullable|array',
+            'planned_notes.*' => 'nullable|string',
+            'planned_attachments' => 'nullable|array',
+            'planned_attachments.*' => 'nullable|file|max:5120'
+        ]);
+
+        $totalPlanned = array_sum($request->planned_quantities);
+        if ($totalPlanned > $item->quantity) {
+            return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
+        }
+
+        $activePlans = $item->deliveryPlans()->where('is_active', true)->get();
+        $submittedPlans = [];
+
+        foreach ($request->planned_dates as $index => $date) {
+            $submittedPlans[] = [
+                'date' => \Carbon\Carbon::parse($date)->format('Y-m-d'),
+                'qty' => (float) $request->planned_quantities[$index],
+                'notes' => $request->planned_notes[$index] ?? null,
+                'attachment' => $request->file("planned_attachments.{$index}") ?? null,
+                'is_matched' => false
+            ];
+        }
+
+        foreach ($activePlans as $plan) {
+            $planDate = $plan->planned_date->format('Y-m-d');
+            $planQty = (float) $plan->planned_quantity;
+            $matched = false;
+
+            // Use array keys to update by reference
+            foreach ($submittedPlans as $key => $submitted) {
+                if (!$submitted['is_matched'] && $submitted['date'] === $planDate && $submitted['qty'] === $planQty) {
+                    $submittedPlans[$key]['is_matched'] = true;
+                    $matched = true;
+
+                    $updateData = [];
+                    // Update notes if provided
+                    if (isset($submitted['notes']) && $submitted['notes'] !== $plan->notes) {
+                        $updateData['notes'] = $submitted['notes'];
+                    }
+                    // Update attachment if provided
+                    if ($submitted['attachment']) {
+                        if ($plan->attachment_path) {
+                            \Illuminate\Support\Facades\Storage::disk('public')->delete($plan->attachment_path);
+                        }
+                        $updateData['attachment_path'] = $submitted['attachment']->store('delivery_plans', 'public');
+                    }
+                    if (!empty($updateData)) {
+                        $plan->update($updateData);
+                    }
+                    break;
+                }
+            }
+
+            if (!$matched) {
+                // Old plan was changed/deleted
+                $plan->update(['is_active' => false]);
+            }
+        }
+
+        foreach ($submittedPlans as $submitted) {
+            if (!$submitted['is_matched']) {
+                $attachmentPath = null;
+                if ($submitted['attachment']) {
+                    $attachmentPath = $submitted['attachment']->store('delivery_plans', 'public');
+                }
+
+                $item->deliveryPlans()->create([
+                    'planned_date' => $submitted['date'],
+                    'planned_quantity' => $submitted['qty'],
+                    'notes' => $submitted['notes'],
+                    'attachment_path' => $attachmentPath,
+                    'is_rescheduled' => true,
+                    'is_active' => true
+                ]);
+            }
+        }
+
+        return redirect()->back()->with('success', 'Rencana kedatangan berhasil di-reschedule.');
+    }
+
+    public function storeDelivery(Request $request, PrItem $item)
+    {
+        // Only procurement or superadmin can add delivery
+        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $receivedSoFar = $item->received_quantity;
+        $maxAllowed = $item->quantity - $receivedSoFar;
+
+        $request->validate([
+            'received_quantity' => 'required|numeric|min:0.01|max:' . $maxAllowed,
+            'delivery_date' => 'required|date',
+            'notes' => 'nullable|string|max:500',
+            'delivery_attachment' => 'nullable|file|max:5120'
+        ]);
+
+        $attachmentPath = null;
+        if ($request->hasFile('delivery_attachment')) {
+            $attachmentPath = $request->file('delivery_attachment')->store('deliveries', 'public');
+        }
+
+        $item->deliveries()->create([
+            'received_quantity' => $request->received_quantity,
+            'delivery_date' => $request->delivery_date,
+            'notes' => $request->notes,
+            'attachment_path' => $attachmentPath,
+            'received_by' => Auth::id()
+        ]);
+
+        // Check if fully delivered
+        $newTotal = $receivedSoFar + $request->received_quantity;
+        if ($newTotal >= $item->quantity && !in_array($item->status, ['completed', 'delivered'])) {
+            $item->update(['status' => 'delivered', 'delivered_at' => now()]);
+            // Notify requester
+            $item->purchaseRequest->user->notify(new ItemDeliveredNotification($item));
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+        }
+
+        return redirect()->back()->with('success', 'Riwayat kedatangan berhasil dicatat.');
+    }
+
+    public function updateDelivery(Request $request, PrItemDelivery $delivery)
+    {
+        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $item = $delivery->prItem;
+        $otherDeliveriesTotal = $item->deliveries()->where('id', '!=', $delivery->id)->sum('received_quantity');
+        $maxAllowed = $item->quantity - $otherDeliveriesTotal;
+
+        $request->validate([
+            'received_quantity' => 'required|numeric|min:0.01|max:' . $maxAllowed,
+            'delivery_date' => 'required|date',
+            'notes' => 'nullable|string|max:500',
+            'delivery_attachment' => 'nullable|file|max:5120'
+        ]);
+
+        $updateData = [
+            'received_quantity' => $request->received_quantity,
+            'delivery_date' => $request->delivery_date,
+            'notes' => $request->notes,
+        ];
+
+        if ($request->hasFile('delivery_attachment')) {
+            if ($delivery->attachment_path) {
+                \Illuminate\Support\Facades\Storage::disk('public')->delete($delivery->attachment_path);
+            }
+            $updateData['attachment_path'] = $request->file('delivery_attachment')->store('deliveries', 'public');
+        }
+
+        $delivery->update($updateData);
+
+        $newTotal = $otherDeliveriesTotal + $request->received_quantity;
+
+        // Revert status to ordered if it was delivered but total is now less
+        if ($newTotal < $item->quantity && $item->status === 'delivered') {
+            $item->update(['status' => 'ordered', 'delivered_at' => null]);
+        }
+        // Advance to delivered if it reaches total and currently ordered
+        elseif ($newTotal >= $item->quantity && $item->status === 'ordered') {
+            $item->update(['status' => 'delivered', 'delivered_at' => now()]);
+            $item->purchaseRequest->user->notify(new ItemDeliveredNotification($item));
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+        }
+
+        return redirect()->back()->with('success', 'Riwayat kedatangan berhasil diperbarui.');
+    }
+
+    public function destroyDelivery(PrItemDelivery $delivery)
+    {
+        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $item = $delivery->prItem;
+        $delivery->delete();
+
+        $newTotal = $item->deliveries()->sum('received_quantity');
+        if ($newTotal < $item->quantity && $item->status === 'delivered') {
+            $item->update(['status' => 'ordered', 'delivered_at' => null]);
+        }
+
+        return redirect()->back()->with('success', 'Riwayat kedatangan berhasil dihapus.');
+    }
+
+    public function rejected(Request $request)
+    {
+        $this->authorize('view pr');
+        $user = Auth::user();
+
+        $query = PurchaseRequest::with(['user', 'department', 'items'])
+            ->whereHas('items', function ($q) {
+                $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc']);
+            });
+
+        if (!$user->hasAnyRole(['superadmin', 'operational_manager', 'manager_fat', 'general_manager', 'procurement'])) {
+            $query->where('user_id', $user->id);
+        }
+
+        $this->applySearchFilter($query, $request->search);
+
+        $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
+        $departments = Department::all();
+        $title = "Rejected Purchase Requests";
+
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title'));
+    }
+
+    public function drafts(Request $request)
+    {
+        $this->authorize('view pr');
+        $user = Auth::user();
+
+        $query = PurchaseRequest::with(['user', 'department', 'items'])
+            ->where('status', 'draft');
+
+        if (!$user->hasAnyRole(['superadmin'])) {
+            $query->where('user_id', $user->id);
+        }
+
+        $this->applySearchFilter($query, $request->search);
+
+        $purchaseRequests = $query->orderBy('updated_at', 'desc')->paginate(10)->withQueryString();
+        $departments = Department::all();
+        $title = "Draft Purchase Requests";
+
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title'));
+    }
+
+    public function approvalQueue(Request $request)
+    {
+        $this->authorize('view pr');
+        $user = Auth::user();
+
+        $query = PurchaseRequest::with(['user', 'department', 'items'])
+            ->where('status', '!=', 'draft');
+
+        if ($user->hasRole('superadmin')) {
+            $query->whereIn('status', ['pending', 'approved_om', 'approved_gm']);
+        } else {
+            $hasApprovalRole = false;
+            $query->where(function ($q) use ($user, &$hasApprovalRole) {
+                if ($user->hasRole('operational_manager')) {
+                    $hasApprovalRole = true;
+                    $q->orWhere(function ($subQ) use ($user) {
+                        $subQ->where('status', 'pending')
+                            ->where('pr_type', 'operational');
+                    });
+                }
+                if ($user->hasRole('manager_fat')) {
+                    $hasApprovalRole = true;
+                    $q->orWhere(function ($subQ) {
+                        $subQ->where('status', 'pending')
+                            ->where('pr_type', 'non_operational');
+                    });
+                }
+                if ($user->hasRole('general_manager')) {
+                    $hasApprovalRole = true;
+                    $q->orWhere('status', 'approved_om');
+                }
+                if ($user->hasRole('procurement')) {
+                    $hasApprovalRole = true;
+                    $q->orWhere('status', 'approved_gm');
+                }
+            });
+
+            if (!$hasApprovalRole) {
+                abort(403);
+            }
+        }
+
+        $this->applySearchFilter($query, $request->search);
+
+        if ($request->filled('department_id')) {
+            $query->where('department_id', $request->department_id);
+        }
+
+        $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
+        $departments = Department::all();
+        $title = 'Approval Queue (OM/GM)';
+        $hideCreateButton = true;
+
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title', 'hideCreateButton'));
+    }
+
+    public function checkNotifications()
+    {
+        $user = auth()->user();
+        if (!$user)
+            return response()->json(['unread_count' => 0, 'latest' => null]);
+
+        $unreadCount = $user->unreadNotifications->count();
+        $latestNotification = $user->unreadNotifications->first();
+
+        return response()->json([
+            'unread_count' => $unreadCount,
+            'latest' => $latestNotification ? [
+                'id' => $latestNotification->id,
+                'message' => $latestNotification->data['message'],
+                'url' => route('notifications.mark-as-read', $latestNotification->id)
+            ] : null
+        ]);
+    }
+
+    private function getSharedRecipients($purchaseRequest, $requester = null)
+    {
+        $superadmins = User::role('superadmin')->get();
+
+        if ($purchaseRequest->pr_type === 'non_operational') {
+            // Level 1 for Non-Operational is Manager FAT
+            $level1Managers = User::role('manager_fat')->get();
+        } else {
+            // Level 1 for Operational is Department OM
+            $level1Managers = User::role('operational_manager')
+                ->where('department_id', $purchaseRequest->department_id)
+                ->get();
+        }
+
+        $recipients = $superadmins->merge($level1Managers);
+
+        if ($requester) {
+            $recipients = $recipients->push($requester);
+        }
+
+        $authId = auth()->id();
+        \Log::info('getSharedRecipients Check', [
+            'auth_id' => $authId,
+            'dept_id' => $purchaseRequest->department_id,
+            'pr_type' => $purchaseRequest->pr_type,
+            'requester_id' => $requester ? $requester->id : 'null',
+            'initial_count' => $recipients->count(),
+            'initial_ids' => $recipients->pluck('id')->toArray()
+        ]);
+
+        $filtered = $recipients->unique('id')->reject(function ($user) use ($authId) {
+            // Use loose comparison to handle string/int mismatches
+            return $user->id == $authId;
+        });
+
+        \Log::info('getSharedRecipients Result', [
+            'final_count' => $filtered->count(),
+            'final_ids' => $filtered->pluck('id')->toArray()
+        ]);
+
+        return $filtered;
+    }
+
+    private function applySearchFilter($query, $search): void
+    {
+        if (!$search) {
+            return;
+        }
+
+        $query->where(function ($q) use ($search) {
+            $q->where('pr_number', 'like', "%{$search}%")
+                ->orWhere('purpose', 'like', "%{$search}%")
+                ->orWhereHas('user', function ($qu) use ($search) {
+                    $qu->where('name', 'like', "%{$search}%");
+                })
+                ->orWhereHas('department', function ($qd) use ($search) {
+                    $qd->where('name', 'like', "%{$search}%")
+                        ->orWhere('code', 'like', "%{$search}%");
+                })
+                ->orWhereHas('items', function ($qi) use ($search) {
+                    $qi->where('item_name', 'like', "%{$search}%")
+                        ->orWhere('uom', 'like', "%{$search}%");
+                });
+        });
+    }
+
+    private function checkAndAdvancePrStatus(PurchaseRequest $pr)
+    {
+        // 1. Check if OM stage is done
+        $omDone = $pr->items()->where('status', 'pending')->doesntExist();
+        if ($omDone && $pr->status === 'pending') {
+            if ($pr->items()->where('status', 'approved_om')->exists()) {
+                $pr->update(['status' => 'approved_om']);
+                $gms = User::role(['general_manager', 'superadmin'])->get();
+                Notification::send($gms, new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu persetujuan General Manager."));
+                Notification::send($gms, new QueuedMailWrapper(new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu persetujuan General Manager.")));
+            } elseif ($pr->items()->where('status', 'rejected_om')->count() === $pr->items()->count()) {
+                $pr->update(['status' => 'rejected_om']);
+            }
+        }
+
+        // 2. Check if GM stage is done
+        $gmDone = $pr->items()->whereIn('status', ['pending', 'approved_om'])->doesntExist();
+        if ($gmDone && in_array($pr->status, ['pending', 'approved_om'])) {
+            if ($pr->items()->where('status', 'approved_gm')->exists()) {
+                $pr->update(['status' => 'approved_gm']);
+                $proc = User::role(['procurement', 'superadmin'])->get();
+                Notification::send($proc, new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu proses Procurement."));
+                Notification::send($proc, new QueuedMailWrapper(new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu proses Procurement.")));
+            } elseif ($pr->items()->whereIn('status', ['rejected_om', 'rejected_gm'])->count() === $pr->items()->count()) {
+                $pr->update(['status' => 'rejected_gm']);
+            }
+        }
+
+        // 3. Check if Procurement stage is done
+        $procDone = $pr->items()->whereIn('status', ['pending', 'approved_om', 'approved_gm'])->doesntExist();
+        if ($procDone && in_array($pr->status, ['pending', 'approved_om', 'approved_gm'])) {
+            if ($pr->items()->where('status', 'approved_proc')->exists()) {
+                $pr->update(['status' => 'approved_proc']);
+            } elseif ($pr->items()->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])->count() === $pr->items()->count()) {
+                $pr->update(['status' => 'rejected_proc']);
+            }
+        }
+
+        // Sync expenses to Finance Application
+        $this->syncPrExpensesWithFinance($pr);
+    }
+
+    private function syncPrExpensesWithFinance(PurchaseRequest $pr)
+    {
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return;
+        }
+
+        $baseApiUrl = dirname($apiUrl);
+        $recordUrl = $baseApiUrl . '/record-expense';
+        $removeUrl = $baseApiUrl . '/remove-expense';
+
+        $headers = [
+            'Accept' => 'application/json',
+            'X-API-KEY' => $apiKey,
+        ];
+
+        // Group items that are actually committed/ordered (ordered, delivered, completed)
+        $committedItems = $pr->items()->whereIn('status', ['ordered', 'delivered', 'completed'])->get();
+
+        if ($committedItems->isEmpty()) {
+            try {
+                \Illuminate\Support\Facades\Http::withoutVerifying()
+                    ->withHeaders($headers)
+                    ->timeout(8)
+                    ->post($removeUrl, [
+                        'reference' => $pr->pr_number,
+                    ]);
+            } catch (\Exception $e) {
+                \Log::error("Failed to remove expense from Finance API for PR {$pr->pr_number}: " . $e->getMessage());
+            }
+            return;
+        }
+
+        $grouped = [];
+        foreach ($committedItems as $item) {
+            if (empty($item->purpose))
+                continue;
+            $amt = (float) ($item->quantity * $item->estimated_price);
+            if (!isset($grouped[$item->purpose])) {
+                $grouped[$item->purpose] = [
+                    'amount' => 0,
+                    'qty' => 0,
+                ];
+            }
+            $grouped[$item->purpose]['amount'] += $amt;
+            $grouped[$item->purpose]['qty'] += (float) $item->quantity;
+        }
+
+        foreach ($grouped as $purpose => $data) {
+            try {
+                $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                    ->withHeaders($headers)
+                    ->timeout(8)
+                    ->post($recordUrl, [
+                        'department_id' => $pr->department_id,
+                        'department_name' => $pr->department?->name,
+                        'category_name' => $purpose,
+                        'amount' => $data['amount'],
+                        'qty' => $data['qty'],
+                        'date' => $pr->request_date->format('Y-m-d'),
+                        'reference' => $pr->pr_number,
+                        'description' => "Realisasi PR {$pr->pr_number} - Kategori {$purpose}",
+                    ]);
+
+                if (!$response->successful()) {
+                    \Log::warning("Finance API record expense returned error code {$response->status()} for PR {$pr->pr_number}, category {$purpose}: " . $response->body());
+                }
+            } catch (\Exception $e) {
+                \Log::error("Failed to record expense to Finance API for PR {$pr->pr_number}, category {$purpose}: " . $e->getMessage());
+            }
+        }
+    }
+
+    private function removePrExpensesFromFinance(PurchaseRequest $pr)
+    {
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return;
+        }
+
+        $baseApiUrl = dirname($apiUrl);
+        $removeUrl = $baseApiUrl . '/remove-expense';
+
+        $headers = [
+            'Accept' => 'application/json',
+            'X-API-KEY' => $apiKey,
+        ];
+
+        try {
+            \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->withHeaders($headers)
+                ->timeout(8)
+                ->post($removeUrl, [
+                    'reference' => $pr->pr_number,
+                ]);
+        } catch (\Exception $e) {
+            \Log::error("Failed to remove expense from Finance API for PR {$pr->pr_number}: " . $e->getMessage());
+        }
+    }
+}
