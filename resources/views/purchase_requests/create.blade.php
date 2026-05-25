@@ -328,7 +328,7 @@
                     if (budgetInfoContainer) {
                         budgetInfoContainer.style.display = 'block';
                         budgetInfoContainer.className = "alert alert-secondary py-2 px-3 mb-0 w-100 font-weight-bold";
-                        budgetInfoContainer.innerHTML = '<span class="text-gray-500"><i class="fas fa-spinner fa-spin"></i> Mengecek anggaran...</span>';
+                        budgetInfoContainer.innerHTML = '<span><i class="fas fa-spinner fa-spin"></i> Mengecek anggaran...</span>';
                     }
 
                     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
@@ -352,10 +352,10 @@
                             if (data.status === 'success' && data.results) {
                                 if (data.is_allowed) {
                                     budgetInfoContainer.className = "alert alert-success py-2 px-3 mb-0 w-100 font-weight-bold";
-                                    budgetInfoContainer.innerHTML = `<span class="text-success"><i class="fas fa-check-circle"></i> Anggaran tersedia. Total: <strong>${formatIDR(grandTotal)}</strong></span>`;
+                                    budgetInfoContainer.innerHTML = `<span><i class="fas fa-check-circle"></i> Anggaran tersedia. Total: <strong>${formatIDR(grandTotal)}</strong></span>`;
                                 } else {
                                     budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                                    budgetInfoContainer.innerHTML = `<span class="text-danger"><i class="fas fa-times-circle"></i> ${data.message || 'Anggaran tidak mencukupi.'}</span>`;
+                                    budgetInfoContainer.innerHTML = `<span><i class="fas fa-times-circle"></i> ${data.message || 'Anggaran tidak mencukupi.'}</span>`;
                                 }
 
                                 const runningTotals = {};
@@ -404,12 +404,12 @@
 
                             } else {
                                 budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                                budgetInfoContainer.innerHTML = `<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Error: ${data.message || 'Gagal mengecek anggaran.'}</span>`;
+                                budgetInfoContainer.innerHTML = `<span><i class="fas fa-exclamation-triangle"></i> Error: ${data.message || 'Gagal mengecek anggaran.'}</span>`;
                             }
                         })
                         .catch(error => {
                             budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                            budgetInfoContainer.innerHTML = `<span class="text-danger"><i class="fas fa-exclamation-triangle"></i> Terjadi kesalahan koneksi saat mengecek anggaran.</span>`;
+                            budgetInfoContainer.innerHTML = `<span><i class="fas fa-exclamation-triangle"></i> Terjadi kesalahan koneksi saat mengecek anggaran.</span>`;
                         });
                 } else {
                     budgetInfoContainer.style.display = 'none';
