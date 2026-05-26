@@ -1011,6 +1011,7 @@
                     body: JSON.stringify({
                         request_date: requestDate,
                         department_id: {{ $purchaseRequest->department_id }},
+                        reference: "{{ $purchaseRequest->pr_number }}",
                         items: payloadItems
                     })
                 })
@@ -1067,12 +1068,17 @@
                                 }
                             }
 
+                            let actualDisplay = actualStr;
+                            if (result.recorded_expense_amount !== null && Math.abs(parseFloat(result.recorded_expense_amount) - actual) > 0.01) {
+                                actualDisplay = `${actualStr}<br><span class="badge badge-warning text-xs mt-1" title="Direvisi oleh Finance"><i class="fas fa-edit mr-1"></i>Rev: ${formatIDR(result.recorded_expense_amount)}</span>`;
+                            }
+
                             html += `
                                 <tr>
                                     <td><strong>${purpose}</strong></td>
                                     <td class="text-right text-info font-weight-bold">${limitStr}</td>
                                     <td class="text-right text-muted">${usageStr}</td>
-                                    <td class="text-right text-white font-weight-bold">${actualStr}</td>
+                                    <td class="text-right text-white font-weight-bold">${actualDisplay}</td>
                                     <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
                                     <td class="text-center">${statusBadge}</td>
                                 </tr>

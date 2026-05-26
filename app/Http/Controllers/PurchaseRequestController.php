@@ -75,7 +75,7 @@ class PurchaseRequestController extends Controller
         return Purpose::all();
     }
 
-    private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null)
+    private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null, $reference = null)
     {
         $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
         $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
@@ -110,6 +110,7 @@ class PurchaseRequestController extends Controller
                     'category_name' => $purpose,
                     'month' => date('Y-m', strtotime($requestDate)),
                     'requested_amount' => $requestedAmount,
+                    'reference' => $reference,
                 ]);
 
             if ($response->successful()) {
@@ -143,6 +144,7 @@ class PurchaseRequestController extends Controller
             'department_id' => 'nullable|integer',
             'purpose' => 'nullable|string',
             'requested_amount' => 'nullable|numeric',
+            'reference' => 'nullable|string',
             'items' => 'nullable|array',
             'items.*.purpose' => 'required_with:items|string',
             'items.*.amount' => 'required_with:items|numeric',
@@ -180,12 +182,13 @@ class PurchaseRequestController extends Controller
             $firstErrorMessage = null;
 
             foreach ($purposeAmounts as $purpose => $amount) {
-                $res = $this->validateBudgetWithFinance($purpose, $request->request_date, $amount, $departmentId, $departmentName);
+                $res = $this->validateBudgetWithFinance($purpose, $request->request_date, $amount, $departmentId, $departmentName, $request->reference);
                 $results[$purpose] = [
                     'is_allowed' => $res['is_allowed'] ?? true,
                     'remaining_budget' => $res['remaining_budget'] ?? null,
                     'budget_limit' => $res['budget_limit'] ?? null,
                     'current_usage' => $res['current_usage'] ?? null,
+                    'recorded_expense_amount' => $res['recorded_expense_amount'] ?? null,
                     'message' => $res['message'] ?? null,
                 ];
                 if (!($res['is_allowed'] ?? true)) {
