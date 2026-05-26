@@ -64,9 +64,14 @@
                     <h3 class="card-title text-lg font-medium mb-0">
                         <i class="fas fa-coins mr-2 text-success"></i> Finance Budget Management
                     </h3>
-                    <button type="button" id="btn-refresh-finance-budget" class="btn btn-sm btn-outline-secondary">
-                        <i class="fas fa-sync-alt"></i> Cek Status
-                    </button>
+                    <div class="d-flex" style="gap: 8px;">
+                        <button type="button" id="btn-sync-departments" class="btn btn-sm btn-info text-white">
+                            <i class="fas fa-building mr-1"></i> Sinkronisasi Departemen
+                        </button>
+                        <button type="button" id="btn-refresh-finance-budget" class="btn btn-sm btn-outline-secondary">
+                            <i class="fas fa-sync-alt"></i> Cek Status
+                        </button>
+                    </div>
                 </div>
                 <div class="card-body p-4">
                     <p class="text-sm text-muted mb-4">
@@ -376,6 +381,48 @@
 
                 // Auto jalankan saat pertama load
                 checkBudgetStatus();
+
+                // Sync Departments
+                const syncDeptBtn = document.getElementById('btn-sync-departments');
+                if (syncDeptBtn) {
+                    syncDeptBtn.addEventListener('click', function() {
+                        const btn = this;
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyinkronkan...';
+
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+                            || document.querySelector('input[name="_token"]')?.value;
+
+                        fetch('{{ route("settings.finance-budget-sync-departments") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                                'X-Requested-With': 'XMLHttpRequest',
+                                'Accept': 'application/json'
+                            },
+                            credentials: 'same-origin'
+                        })
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                alert(data.message);
+                                if (typeof fetchDetailedBudgetData === 'function') {
+                                    fetchDetailedBudgetData();
+                                }
+                            } else {
+                                alert('Gagal menyinkronkan: ' + data.message);
+                            }
+                        })
+                        .catch(err => {
+                            alert('Error: ' + err.message);
+                        })
+                        .finally(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fas fa-building mr-1"></i> Sinkronisasi Departemen';
+                        });
+                    });
+                }
 
                 // Generate API Key
                 document.getElementById('btn-generate-key').addEventListener('click', function() {

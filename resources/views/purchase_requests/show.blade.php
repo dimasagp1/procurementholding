@@ -71,6 +71,12 @@
                 </div>
             </div>
 
+            @php
+                $showBudgetDetails = (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')) && 
+                    $purchaseRequest->items->whereIn('status', ['approved_gm', 'approved_proc', 'ordered', 'delivered', 'completed'])->isNotEmpty();
+            @endphp
+
+            @if($showBudgetDetails)
             <!-- Budget Details -->
             <div class="card shadow-sm rounded-lg mb-3 show-card" id="budget-details-card" style="display: none;">
                 <div class="p-6 text-gray-900">
@@ -82,7 +88,7 @@
                                     <th>Nama Kategori</th>
                                     <th class="text-right">Pagu Bulan Ini</th>
                                     <th class="text-right">Realisasi (Sebelum PR)</th>
-                                    <th class="text-right">Pengajuan PR Ini</th>
+                                    <th class="text-right">Pengeluaran PR Ini</th>
                                     <th class="text-right">Sisa Pagu Setelah PR</th>
                                     <th class="text-center">Status</th>
                                 </tr>
@@ -98,6 +104,7 @@
                     </div>
                 </div>
             </div>
+            @endif
 
             <!-- Items -->
             <div class="card shadow-sm rounded-lg mb-3 show-card">
@@ -533,9 +540,56 @@
                                                     <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
                                                 </div>
                                                 <div class="modal-body text-left">
+                                                    <!-- Banner Alert -->
+                                                    <div id="modal-budget-alert-{{ $item->id }}" class="alert alert-success py-2 mb-3 align-items-center" style="display: flex; gap: 8px;">
+                                                        <i class="fas fa-check-circle"></i>
+                                                        <span id="modal-budget-alert-text-{{ $item->id }}">Semua anggaran kategori tersedia. Total Pengeluaran PO: Rp 0</span>
+                                                    </div>
+
+                                                    <!-- Pagu Info Card -->
+                                                    <div class="p-3 mb-3 rounded" style="background-color: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);">
+                                                        <div class="row align-items-center">
+                                                            <div class="col-md-6">
+                                                                <span class="text-gray-400 text-sm">Kategori Anggaran (Purpose)</span><br>
+                                                                <span class="text-white font-weight-bold">{{ $item->purpose ?? '-' }}</span>
+                                                            </div>
+                                                            <div class="col-md-6 text-md-right mt-2 mt-md-0">
+                                                                <span class="text-gray-400 text-sm">📁 Pagu Tersedia</span><br>
+                                                                <span class="text-info font-weight-bold" id="modal-pagu-tersedia-{{ $item->id }}">Memuat...</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
                                                     <div class="form-group">
                                                         <label class="text-gray-300">NO. PO *</label>
-                                                        <input type="text" name="po_number" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                        <input type="text" name="po_number" class="form-control" required value="{{ old('po_number', $item->po_number) }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="text-gray-300">Harga Satuan Aktual *</label>
+                                                        <input type="number" step="0.01" name="actual_price" class="form-control" required 
+                                                               value="{{ old('actual_price', $item->actual_price ?? $item->estimated_price) }}" 
+                                                               data-item-id="{{ $item->id }}" 
+                                                               data-qty="{{ $item->quantity }}" 
+                                                               data-purpose="{{ $item->purpose }}" 
+                                                               data-dept-id="{{ $purchaseRequest->department_id }}" 
+                                                               data-date="{{ $purchaseRequest->request_date->format('Y-m-d') }}"
+                                                               style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                    </div>
+
+                                                    <!-- Budget Calculation Row -->
+                                                    <div class="form-row mt-3 mb-3 p-3 rounded" style="background-color: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); margin-left: 0; margin-right: 0;">
+                                                        <div class="col-md-4 mb-2 mb-md-0">
+                                                            <span class="text-gray-400 text-xs">Total Harga Aktual</span><br>
+                                                            <span class="text-white font-weight-bold" id="modal-total-harga-{{ $item->id }}">Rp 0</span>
+                                                        </div>
+                                                        <div class="col-md-4 mb-2 mb-md-0">
+                                                            <span class="text-gray-400 text-xs">Sisa Pagu</span><br>
+                                                            <span class="font-weight-bold" id="modal-sisa-pagu-{{ $item->id }}" style="color: #f59e0b;">Rp -</span>
+                                                        </div>
+                                                        <div class="col-md-4">
+                                                            <span class="text-gray-400 text-xs">Status Anggaran</span><br>
+                                                            <span id="modal-status-badge-{{ $item->id }}" class="badge badge-success py-1 px-2" style="font-size: 0.85rem;"><i class="fas fa-check-circle mr-1"></i> Aman</span>
+                                                        </div>
                                                     </div>
                                                     
                                                     <div class="form-group border border-secondary p-3 rounded mt-3 position-relative">
@@ -932,16 +986,19 @@
                 @foreach($purchaseRequest->items as $item)
                     @if($item->purpose)
                         {
-                            purpose: "{{ $item->purpose }}",
-                            amount: {{ (float) ($item->quantity * $item->estimated_price) }}
+                            purpose: {!! json_encode($item->purpose) !!},
+                            amount: {{ (float) ($item->quantity * $item->estimated_price) }},
+                            actual_amount: {{ (float) ($item->actual_total_price ?? 0) }},
+                            is_committed: {{ in_array($item->status, ['ordered', 'delivered', 'completed']) ? 'true' : 'false' }},
+                            is_uncommitted_active: {{ in_array($item->status, ['pending', 'approved_om', 'approved_gm']) ? 'true' : 'false' }}
                         },
                     @endif
                 @endforeach
             ];
             const requestDate = "{{ $purchaseRequest->request_date->format('Y-m-d') }}";
 
-            if (payloadItems.length > 0) {
-                const budgetDetailsCard = document.getElementById('budget-details-card');
+            const budgetDetailsCard = document.getElementById('budget-details-card');
+            if (payloadItems.length > 0 && budgetDetailsCard) {
                 const budgetDetailsTbody = document.getElementById('budget-details-tbody');
 
                 fetch('/api/internal/check-budget', {
@@ -965,20 +1022,40 @@
                         
                         // Let's compute group amounts to show requested amount per purpose
                         const groupedAmounts = {};
+                        const groupedActualAmounts = {};
+                        const groupedCommittedAmounts = {};
+                        const groupedUncommittedActiveAmounts = {};
                         payloadItems.forEach(item => {
                             groupedAmounts[item.purpose] = (groupedAmounts[item.purpose] || 0) + item.amount;
+                            groupedActualAmounts[item.purpose] = (groupedActualAmounts[item.purpose] || 0) + item.actual_amount;
+                            if (item.is_committed) {
+                                groupedCommittedAmounts[item.purpose] = (groupedCommittedAmounts[item.purpose] || 0) + item.actual_amount;
+                            } else if (item.is_uncommitted_active) {
+                                groupedUncommittedActiveAmounts[item.purpose] = (groupedUncommittedActiveAmounts[item.purpose] || 0) + item.amount;
+                            }
                         });
 
                         Object.keys(data.results).forEach(purpose => {
                             const result = data.results[purpose];
                             const requested = groupedAmounts[purpose] || 0;
+                            const actual = groupedActualAmounts[purpose] || 0;
+                            const actualCommitted = groupedCommittedAmounts[purpose] || 0;
+                            const estimatedUncommitted = groupedUncommittedActiveAmounts[purpose] || 0;
+                            
                             const limit = result.budget_limit !== null ? parseFloat(result.budget_limit) : null;
-                            const usage = result.current_usage !== null ? parseFloat(result.current_usage) : null;
-                            const remaining = result.remaining_budget !== null ? parseFloat(result.remaining_budget) : null;
+                            const usageRaw = result.current_usage !== null ? parseFloat(result.current_usage) : null;
+                            
+                            // Realisasi sebelum PR: usage dari Finance dikurangi pengeluaran aktual dari PR ini yang sudah tercommit
+                            const usage = usageRaw !== null ? (usageRaw - actualCommitted) : null;
+                            
+                            // Sisa pagu: limit - realisasi_sebelum - estimated_uncommitted - actual_committed
+                            // Yang secara matematis setara dengan limit - usageRaw - estimatedUncommitted
+                            const remaining = limit !== null && usageRaw !== null ? (limit - usageRaw - estimatedUncommitted) : null;
                             
                             const limitStr = limit !== null ? formatIDR(limit) : '-';
                             const usageStr = usage !== null ? formatIDR(usage) : '-';
                             const requestedStr = formatIDR(requested);
+                            const actualStr = formatIDR(actual);
                             const remainingStr = remaining !== null ? formatIDR(remaining) : '-';
                             
                             let statusBadge = '<span class="badge badge-secondary">-</span>';
@@ -995,7 +1072,7 @@
                                     <td><strong>${purpose}</strong></td>
                                     <td class="text-right text-info font-weight-bold">${limitStr}</td>
                                     <td class="text-right text-muted">${usageStr}</td>
-                                    <td class="text-right text-success font-weight-bold">${requestedStr}</td>
+                                    <td class="text-right text-white font-weight-bold">${actualStr}</td>
                                     <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
                                     <td class="text-center">${statusBadge}</td>
                                 </tr>
@@ -1135,6 +1212,98 @@
                 const iframe = document.getElementById('prPreviewFrame');
                 iframe.contentWindow.print();
             };
+
+            // Order Modal Budget Checking Logic
+            $(document).on('shown.bs.modal', '[id^="orderModal-"]', function() {
+                const modal = $(this);
+                const priceInput = modal.find('input[name="actual_price"]');
+                checkModalBudget(priceInput);
+            });
+
+            $(document).on('input keyup', '[id^="orderModal-"] input[name="actual_price"]', function() {
+                checkModalBudget($(this));
+            });
+
+            function checkModalBudget(input) {
+                const itemId = input.data('item-id');
+                const qty = parseFloat(input.data('qty')) || 0;
+                const price = parseFloat(input.val()) || 0;
+                const purpose = input.data('purpose');
+                const deptId = input.data('dept-id');
+                const date = input.data('date');
+                
+                const totalActual = qty * price;
+                
+                // Update total actual price in UI
+                $(`#modal-total-harga-${itemId}`).text(formatIDR(totalActual));
+                
+                if (!purpose) return;
+                
+                // Call internal check budget
+                fetch('/api/internal/check-budget', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        request_date: date,
+                        department_id: deptId,
+                        purpose: purpose,
+                        requested_amount: totalActual
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const alertDiv = $(`#modal-budget-alert-${itemId}`);
+                    const alertText = $(`#modal-budget-alert-text-${itemId}`);
+                    const paguSpan = $(`#modal-pagu-tersedia-${itemId}`);
+                    const sisaSpan = $(`#modal-sisa-pagu-${itemId}`);
+                    const badgeSpan = $(`#modal-status-badge-${itemId}`);
+                    
+                    const limit = data.budget_limit !== null ? parseFloat(data.budget_limit) : 0;
+                    const usage = data.current_usage !== null ? parseFloat(data.current_usage) : 0;
+                    const remaining = data.remaining_budget !== null ? parseFloat(data.remaining_budget) : 0;
+                    
+                    const isAllowed = data.is_allowed !== false;
+                    
+                    // Show Pagu Tersedia (Budget limit - current usage before this item's actual amount)
+                    const paguTersedia = limit - usage;
+                    paguSpan.text(formatIDR(paguTersedia));
+                    
+                    // Show Sisa Pagu (paguTersedia - totalActual)
+                    sisaSpan.text(formatIDR(remaining));
+                    
+                    if (remaining < 0) {
+                        sisaSpan.removeClass('text-warning text-success').addClass('text-danger');
+                    } else {
+                        sisaSpan.removeClass('text-danger').addClass('text-warning');
+                    }
+                    
+                    // Update Status Badge and Alert Banner
+                    if (isAllowed) {
+                        // Safe
+                        badgeSpan.removeClass('badge-danger').addClass('badge-success')
+                            .html('<i class="fas fa-check-circle mr-1"></i> Aman');
+                        
+                        alertDiv.removeClass('alert-danger').addClass('alert-success');
+                        alertText.text(`Semua anggaran kategori tersedia. Total Pengeluaran PO: ${formatIDR(totalActual)}`);
+                        alertDiv.find('i').removeClass('fa-exclamation-triangle').addClass('fa-check-circle');
+                    } else {
+                        // Over Budget (Soft Warning - Opsi 1)
+                        badgeSpan.removeClass('badge-success').addClass('badge-danger')
+                            .html('<i class="fas fa-exclamation-triangle mr-1"></i> Over Budget');
+                        
+                        alertDiv.removeClass('alert-success').addClass('alert-danger');
+                        alertText.text(`Peringatan: Total Pengeluaran PO (${formatIDR(totalActual)}) melebihi sisa anggaran!`);
+                        alertDiv.find('i').removeClass('fa-check-circle').addClass('fa-exclamation-triangle');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching budget status in modal:', error);
+                });
+            }
         });
     </script>
 

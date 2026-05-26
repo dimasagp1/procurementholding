@@ -423,4 +423,96 @@ class SettingController extends Controller
             'message' => 'Kredensial API Finance berhasil disimpan.',
         ]);
     }
+
+    public function syncDepartments()
+    {
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return response()->json(['status' => 'error', 'message' => 'Konfigurasi API Finance belum lengkap.']);
+        }
+
+        $departmentsUrl = str_replace('/check', '/departments', $apiUrl);
+
+        try {
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->withHeaders([
+                    'Accept'    => 'application/json',
+                    'X-API-KEY' => $apiKey,
+                ])
+                ->timeout(8)
+                ->withOptions([
+                    'curl' => [
+                        CURLOPT_SSL_VERIFYPEER => false,
+                        CURLOPT_SSL_VERIFYHOST => false,
+                        CURLOPT_CONNECTTIMEOUT => 5,
+                        CURLOPT_TIMEOUT        => 8,
+                    ],
+                ])
+                ->get($departmentsUrl);
+
+            $responseBody = $response->json();
+            
+            // Fallback if the dedicated /departments endpoint is not available or errors
+            if (!$response->successful() || !$responseBody || !isset($responseBody['data']) || $responseBody['status'] !== 'success') {
+                $detailUrl = str_replace('/check', '/detail-monthly', $apiUrl);
+                $detailResponse = \Illuminate\Support\Facades\Http::withoutVerifying()
+                    ->withHeaders([
+                        'Accept'    => 'application/json',
+                        'X-API-KEY' => $apiKey,
+                    ])
+                    ->timeout(8)
+                    ->get($detailUrl);
+                
+                $detailBody = $detailResponse->json();
+                if ($detailResponse->successful() && $detailBody && isset($detailBody['data'])) {
+                    $responseBody = [
+                        'status' => 'success',
+                        'data' => array_map(function($d) {
+                            return [
+                                'id' => $d['department_id'],
+                                'name' => $d['department_name'],
+                                'code' => strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $d['department_name']), 0, 10)),
+                                'head_name' => null,
+                                'description' => null,
+                                'is_active' => true
+                            ];
+                        }, $detailBody['data'])
+                    ];
+                } else {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'API Finance merespons error atau tidak memiliki daftar departemen.'
+                    ], 500);
+                }
+            }
+
+            $syncedCount = 0;
+            foreach ($responseBody['data'] as $dept) {
+                $code = !empty($dept['code']) ? $dept['code'] : strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $dept['name']), 0, 10));
+                
+                \App\Models\Department::updateOrCreate(
+                    ['name' => $dept['name']],
+                    [
+                        'code' => $code,
+                        'manager' => $dept['head_name'] ?? ($dept['manager'] ?? null),
+                        'description' => $dept['description'] ?? null,
+                        'is_active' => $dept['is_active'] ?? true
+                    ]
+                );
+                $syncedCount++;
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => "Berhasil menyinkronkan {$syncedCount} departemen dari Finance."
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Gagal menghubungi API Finance: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

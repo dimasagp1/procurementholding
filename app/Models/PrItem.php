@@ -17,6 +17,8 @@ class PrItem extends Model
         'uom',
         'estimated_price',
         'total_price',
+        'actual_price',
+        'actual_total_price',
         'due_date',
         'attachment',
         'status',
@@ -36,6 +38,8 @@ class PrItem extends Model
     protected $casts = [
         'estimated_price' => 'decimal:2',
         'total_price' => 'decimal:2',
+        'actual_price' => 'decimal:2',
+        'actual_total_price' => 'decimal:2',
         'rejected_at' => 'datetime',
         'processed_at' => 'datetime',
         'ordered_at' => 'datetime',

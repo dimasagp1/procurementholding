@@ -1079,6 +1079,7 @@ class PurchaseRequestController extends Controller
         if ($request->status === 'ordered') {
             $request->validate([
                 'po_number' => 'required|string|max:255',
+                'actual_price' => 'required|numeric|min:0',
                 'planned_dates' => 'required|array|min:1',
                 'planned_dates.*' => 'required|date',
                 'planned_quantities' => 'required|array|min:1',
@@ -1095,6 +1096,8 @@ class PurchaseRequestController extends Controller
             }
 
             $updateData['po_number'] = $request->po_number;
+            $updateData['actual_price'] = $request->actual_price;
+            $updateData['actual_total_price'] = $item->quantity * $request->actual_price;
             $updateData['ordered_at'] = now();
             $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$request->po_number}.";
         } elseif ($request->status === 'approved_gm') {
@@ -1610,7 +1613,8 @@ class PurchaseRequestController extends Controller
         foreach ($committedItems as $item) {
             if (empty($item->purpose))
                 continue;
-            $amt = (float) ($item->quantity * $item->estimated_price);
+            $price = $item->actual_price !== null ? (float) $item->actual_price : (float) $item->estimated_price;
+            $amt = (float) ($item->quantity * $price);
             if (!isset($grouped[$item->purpose])) {
                 $grouped[$item->purpose] = [
                     'amount' => 0,

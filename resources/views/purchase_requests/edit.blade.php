@@ -37,7 +37,6 @@
                                 @error('pr_type') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
-                        <div id="budget-info-container" style="display:none !important;"></div>
                     </div>
                 </div>
 
@@ -88,9 +87,7 @@
                                                     </span>
                                                 </div>
                                                 <div class="text-sm text-gray-400 mb-0">
-                                                    Qty: <strong>{{ $item->quantity }}</strong> | 
-                                                    Harga Satuan: <strong>Rp {{ number_format($item->estimated_price, 0, ',', '.') }}</strong> | 
-                                                    Total: <strong>Rp {{ number_format($item->total_price, 0, ',', '.') }}</strong>
+                                                    Qty: <strong>{{ $item->quantity }} {{ $item->uom }}</strong>
                                                 </div>
                                                 <input type="hidden" name="items[{{ $index }}][id]" value="{{ $item->id }}">
                                                 <input type="hidden" name="items[{{ $index }}][purpose]" value="{{ $item->purpose }}">
@@ -157,6 +154,7 @@
                                                              <option value="{{ $p->name }}" {{ old("items.{$index}.purpose", $item->purpose) == $p->name ? 'selected' : '' }}>{{ $p->name }}</option>
                                                          @endforeach
                                                      </select>
+                                                     
                                                  </div>
                                                 <div class="col-md-2 mb-3">
                                                     <label class="form-label">Quantity *</label>
@@ -188,26 +186,13 @@
                                                     <input type="file" name="items[{{ $index }}][attachment]" class="form-control">
                                             </div>
                                             <div class="row align-items-end">
-                                                <div class="col-md-4 mb-3">
-                                                    <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
+                                                <div class="col-md-12 mb-3">
+                                                     <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
                                                     <input type="text" name="items[{{ $index }}][due_date]" class="form-control" value="{{ old("items.{$index}.due_date", $item->due_date) }}" placeholder="Contoh: ASAP, 20 Jan, atau Segera">
                                                 </div>
-                                                <div class="col-md-2 mb-3">
-                                                    <label class="form-label font-weight-bold text-info"><i class="fas fa-coins mr-1"></i>Harga Satuan *</label>
-                                                    <input type="number" step="0.01" name="items[{{ $index }}][estimated_price]" class="form-control price-input" value="{{ old("items.{$index}.estimated_price", $item->estimated_price) }}" placeholder="0" min="0" required>
-                                                </div>
-                                                <div class="col-md-2 mb-3">
-                                                    <label class="form-label font-weight-bold text-success"><i class="fas fa-calculator mr-1"></i>Total Harga</label>
-                                                    <input type="text" class="form-control total-input bg-dark text-white font-weight-bold" readonly value="Rp 0">
-                                                </div>
-                                                <div class="col-md-2 mb-3">
-                                                    <label class="form-label font-weight-bold text-warning"><i class="fas fa-wallet mr-1"></i>Sisa Pagu</label>
-                                                    <div class="item-remaining-budget text-warning font-weight-bold pb-2" style="font-size: 0.95rem;">-</div>
-                                                </div>
-                                                <div class="col-md-2 mb-3">
-                                                    <label class="form-label font-weight-bold text-danger"><i class="fas fa-exclamation-triangle mr-1"></i>Status</label>
-                                                    <div class="item-budget-status text-danger font-weight-bold pb-2" style="font-size: 0.95rem;">-</div>
-                                                </div>
+                                                
+                                                
+                                                
                                             </div>
                                             <div class="row">
                                                 <div class="col-md-12 mb-3">
@@ -284,6 +269,7 @@
                                             <option value="{{ $p->name }}">{{ $p->name }}</option>
                                         @endforeach
                                     </select>
+                                    
                                 </div>
                                 <div class="col-md-2 mb-3">
                                     <label class="form-label">Quantity *</label>
@@ -306,26 +292,13 @@
                                 </div>
                             </div>
                             <div class="row align-items-end">
-                                <div class="col-md-4 mb-3">
-                                    <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
+                                <div class="col-md-12 mb-3">
+                                                     <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
                                     <input type="text" name="items[${index}][due_date]" class="form-control" placeholder="Contoh: ASAP, 20 Jan, atau Segera">
                                 </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label font-weight-bold text-info"><i class="fas fa-coins mr-1"></i>Harga Satuan *</label>
-                                    <input type="number" step="0.01" name="items[${index}][estimated_price]" class="form-control price-input" placeholder="0" min="0" required>
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label font-weight-bold text-success"><i class="fas fa-calculator mr-1"></i>Total Harga</label>
-                                    <input type="text" class="form-control total-input bg-dark text-white font-weight-bold" readonly value="Rp 0">
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label font-weight-bold text-warning"><i class="fas fa-wallet mr-1"></i>Sisa Pagu</label>
-                                    <div class="item-remaining-budget text-warning font-weight-bold pb-2" style="font-size: 0.95rem;">-</div>
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label font-weight-bold text-danger"><i class="fas fa-exclamation-triangle mr-1"></i>Status</label>
-                                    <div class="item-budget-status text-danger font-weight-bold pb-2" style="font-size: 0.95rem;">-</div>
-                                </div>
+                                
+                                
+                                
                             </div>
                             <div class="row">
                                 <div class="col-md-12 mb-3">
@@ -354,8 +327,7 @@
                         row.querySelector(`[name="items[${index}][quantity]"]`).value = oldItems[index].quantity || '';
                         row.querySelector(`[name="items[${index}][uom]"]`).value = oldItems[index].uom || '';
                         row.querySelector(`[name="items[${index}][due_date]"]`).value = oldItems[index].due_date || '';
-                        row.querySelector(`[name="items[${index}][estimated_price]"]`).value = oldItems[index].estimated_price || '';
-                        row.querySelector(`[name="items[${index}][description]"]`).value = oldItems[index].description || '';
+                                                row.querySelector(`[name="items[${index}][description]"]`).value = oldItems[index].description || '';
                         
                         if (oldItems[index].item_name === 'other') {
                             const manualInput = row.querySelector(`#manual_item_name_${index}`);
@@ -446,10 +418,7 @@
                     new TomSelect(purposeSelect, {
                         create: false,
                         sortField: { field: "text", direction: "asc" },
-                        placeholder: "Select Purpose",
-                        onChange: function(value) {
-                            checkBudget();
-                        }
+                        placeholder: "Select Purpose"
                     });
                 }
             }
@@ -460,210 +429,15 @@
                 initTomSelects(row, idx);
             });
 
-            function formatIDR(val) {
-                return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(val);
-            }
 
-            function calculateItemTotals() {
-                let grandTotal = 0;
-                const indices = new Set();
-                document.querySelectorAll('[name^="items["]').forEach(el => {
-                    const match = el.name.match(/^items\[(\d+)\]/);
-                    if (match) {
-                        indices.add(match[1]);
-                    }
-                });
-
-                indices.forEach(idx => {
-                    const qtyEl = document.querySelector(`[name="items[${idx}][quantity]"]`);
-                    const priceEl = document.querySelector(`[name="items[${idx}][estimated_price]"]`);
-                    const totalEl = document.querySelector(`#item-row-${idx} .total-input`);
-                    
-                    if (qtyEl && priceEl) {
-                        const qty = parseFloat(qtyEl.value) || 0;
-                        const price = parseFloat(priceEl.value) || 0;
-                        const total = qty * price;
-                        if (totalEl) {
-                            totalEl.value = formatIDR(total);
-                        }
-                        grandTotal += total;
-                    }
-                });
-                return grandTotal;
-            }
-
-            // Budget Checking Logic
-            const requestDateInput = document.getElementById('request_date');
-            const budgetInfoContainer = document.getElementById('budget-info-container');
             
-            function checkBudget() {
-                const dateVal = requestDateInput ? requestDateInput.value : null;
-                const grandTotal = calculateItemTotals();
-
-                // Gather all items that have a purpose
-                const payloadItems = [];
-                const indices = new Set();
-                document.querySelectorAll('[name^="items["]').forEach(el => {
-                    const match = el.name.match(/^items\[(\d+)\]/);
-                    if (match) {
-                        indices.add(match[1]);
-                    }
-                });
-
-                indices.forEach(idx => {
-                    const purposeEl = document.querySelector(`[name="items[${idx}][purpose]"]`);
-                    const qtyEl = document.querySelector(`[name="items[${idx}][quantity]"]`);
-                    const priceEl = document.querySelector(`[name="items[${idx}][estimated_price]"]`);
-                    
-                    const purpose = purposeEl ? purposeEl.value : '';
-                    const qty = parseFloat(qtyEl?.value) || 0;
-                    const price = parseFloat(priceEl?.value) || 0;
-                    
-                    if (purpose) {
-                        payloadItems.push({
-                            purpose: purpose,
-                            amount: qty * price
-                        });
-                    }
-                });
-
-                if (dateVal && payloadItems.length > 0) {
-                    if (budgetInfoContainer) {
-                        budgetInfoContainer.style.display = 'block';
-                        budgetInfoContainer.className = "alert alert-secondary py-2 px-3 mb-0 w-100 font-weight-bold";
-                        budgetInfoContainer.innerHTML = '<span><i class="fas fa-spinner fa-spin"></i> Mengecek anggaran...</span>';
-                    }
-                    
-                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
-                        || document.querySelector('input[name="_token"]')?.value;
-                    if (!csrfToken) return;
-
-                    fetch('/api/internal/check-budget', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken,
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            request_date: dateVal,
-                            items: payloadItems
-                        })
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'success' && data.results) {
-                            if (data.is_allowed) {
-                                budgetInfoContainer.className = "alert alert-success py-2 px-3 mb-0 w-100 font-weight-bold";
-                                budgetInfoContainer.innerHTML = `<span><i class="fas fa-check-circle"></i> Anggaran tersedia. Total: <strong>${formatIDR(grandTotal)}</strong></span>`;
-                            } else {
-                                budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                                budgetInfoContainer.innerHTML = `<span><i class="fas fa-times-circle"></i> ${data.message || 'Anggaran tidak mencukupi.'}</span>`;
-                            }
-
-                            const runningTotals = {};
-                            
-                            indices.forEach(idx => {
-                                const row = document.getElementById(`item-row-${idx}`);
-                                const purposeEl = document.querySelector(`[name="items[${idx}][purpose]"]`);
-                                const qtyEl = document.querySelector(`[name="items[${idx}][quantity]"]`);
-                                const priceEl = document.querySelector(`[name="items[${idx}][estimated_price]"]`);
-                                
-                                const purpose = purposeEl ? purposeEl.value : '';
-                                const qty = parseFloat(qtyEl?.value) || 0;
-                                const price = parseFloat(priceEl?.value) || 0;
-                                const total = qty * price;
-
-                                if (!purpose) {
-                                    if (row) {
-                                        const remainingDiv = row.querySelector('.item-remaining-budget');
-                                        const statusDiv = row.querySelector('.item-budget-status');
-                                        if (remainingDiv) remainingDiv.innerHTML = '-';
-                                        if (statusDiv) statusDiv.innerHTML = '<span class="text-secondary">-</span>';
-                                    }
-                                    return;
-                                }
-
-                                runningTotals[purpose] = (runningTotals[purpose] || 0) + total;
-
-                                if (row) {
-                                    const remainingDiv = row.querySelector('.item-remaining-budget');
-                                    const statusDiv = row.querySelector('.item-budget-status');
-                                    const result = data.results[purpose];
-
-                                    if (!result) {
-                                        if (remainingDiv) remainingDiv.innerHTML = '-';
-                                        if (statusDiv) statusDiv.innerHTML = '<span class="text-secondary">-</span>';
-                                        return;
-                                    }
-
-                                    const remainingVal = result.remaining_budget !== null ? parseFloat(result.remaining_budget) : null;
-                                    
-                                    if (remainingDiv) {
-                                        remainingDiv.innerHTML = remainingVal !== null ? formatIDR(remainingVal) : '-';
-                                    }
-
-                                    if (statusDiv) {
-                                        if (remainingVal === null) {
-                                            statusDiv.innerHTML = '<span class="text-secondary">-</span>';
-                                        } else if (runningTotals[purpose] <= remainingVal) {
-                                            statusDiv.innerHTML = '<span class="text-success"><i class="fas fa-check-circle mr-1"></i> Aman</span>';
-                                        } else {
-                                            statusDiv.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle mr-1"></i> Over Budget</span>';
-                                        }
-                                    }
-                                }
-                            });
-
-                        } else {
-                            if (budgetInfoContainer) {
-                                budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                                budgetInfoContainer.innerHTML = `<span><i class="fas fa-exclamation-triangle"></i> Error: ${data.message || 'Gagal mengecek anggaran.'}</span>`;
-                            }
-                        }
-                    })
-                    .catch(error => {
-                        if (budgetInfoContainer) {
-                            budgetInfoContainer.className = "alert alert-danger py-2 px-3 mb-0 w-100 font-weight-bold";
-                            budgetInfoContainer.innerHTML = `<span><i class="fas fa-exclamation-triangle"></i> Terjadi kesalahan koneksi saat mengecek anggaran.</span>`;
-                        }
-                    });
-                } else {
-                    if (budgetInfoContainer) budgetInfoContainer.style.display = 'none';
-                    document.querySelectorAll('.item-row').forEach(row => {
-                        const remainingDiv = row.querySelector('.item-remaining-budget');
-                        const statusDiv = row.querySelector('.item-budget-status');
-                        if (remainingDiv) remainingDiv.innerHTML = '-';
-                        if (statusDiv) statusDiv.innerHTML = '-';
-                    });
-                }
-            }
-
-            if (requestDateInput) {
-                requestDateInput.addEventListener('change', checkBudget);
-            }
-            
-            // Recalculate totals and check budget on input
-            container.addEventListener('input', function(e) {
-                if (e.target.classList.contains('quantity-input') || e.target.classList.contains('price-input')) {
-                    calculateItemTotals();
-                    checkBudget();
-                }
-            });
-
-            // Initial check on load
-            calculateItemTotals();
-            checkBudget();
-
-            container.addEventListener('click', function(e) {
+                                    container.addEventListener('click', function(e) {
                 if (e.target.closest('.remove-item')) {
                     const row = e.target.closest('.item-row');
                     const allRows = container.querySelectorAll('.item-row');
                     if (allRows.length > 1) {
                         row.remove();
-                        calculateItemTotals();
-                        checkBudget();
-                    } else {
+                        } else {
                         alert('At least one item is required.');
                     }
                 }

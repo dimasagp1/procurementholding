@@ -77,6 +77,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/settings/finance-budget-generate', [\App\Http\Controllers\SettingController::class, 'generateFinanceBudget'])->name('settings.finance-budget-generate');
     Route::get('/settings/finance-budget-data', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetData'])->name('settings.finance-budget-data');
     Route::get('/settings/finance-budget-detail', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetDetail'])->name('settings.finance-budget-detail');
+    Route::post('/settings/finance-budget-sync-departments', [\App\Http\Controllers\SettingController::class, 'syncDepartments'])->name('settings.finance-budget-sync-departments');
 
     // Superadmin Settings
     Route::middleware('role:superadmin')->group(function () {
