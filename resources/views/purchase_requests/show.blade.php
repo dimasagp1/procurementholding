@@ -66,14 +66,22 @@
                             <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="openPreviewModal('{{ route('purchase-requests.preview', $purchaseRequest) }}', '{{ route('purchase-requests.export', $purchaseRequest) }}')">
                                 <i class="fas fa-file-pdf"></i> Export PDF
                             </button>
+
+                            <form action="{{ route('purchase-requests.resend-notification', $purchaseRequest) }}" method="POST" class="d-inline mt-2 ml-2 form-confirm" data-message="Kirim ulang email notifikasi untuk PR ini?">
+                                @csrf
+                                <button type="submit" class="btn btn-info btn-sm">
+                                    <i class="fas fa-paper-plane"></i> Kirim Ulang Email
+                                </button>
+                            </form>
                         </div>
                     </div>
                 </div>
             </div>
 
             @php
-                $showBudgetDetails = (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')) && 
-                    $purchaseRequest->items->whereIn('status', ['approved_gm', 'approved_proc', 'ordered', 'delivered', 'completed'])->isNotEmpty();
+                $showBudgetDetails = $purchaseRequest->status !== 'draft' && (
+                    Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager'])
+                );
             @endphp
 
             @if($showBudgetDetails)
@@ -88,14 +96,15 @@
                                     <th>Nama Kategori</th>
                                     <th class="text-right">Pagu Bulan Ini</th>
                                     <th class="text-right">Realisasi (Sebelum PR)</th>
-                                    <th class="text-right">Pengeluaran PR Ini</th>
+                                    <th class="text-right text-success">Estimasi PR Ini</th>
+                                    <th class="text-right text-warning">Aktual PR Ini</th>
                                     <th class="text-right">Sisa Pagu Setelah PR</th>
                                     <th class="text-center">Status</th>
                                 </tr>
                             </thead>
                             <tbody id="budget-details-tbody">
                                 <tr>
-                                    <td colspan="6" class="text-center py-3">
+                                    <td colspan="7" class="text-center py-3">
                                         <i class="fas fa-spinner fa-spin mr-1"></i> Memuat rincian anggaran...
                                     </td>
                                 </tr>
@@ -128,6 +137,9 @@
                                     <th>Item Name</th>
                                     <th>Keterangan</th>
                                     <th>Qty/UOM</th>
+                                    @if(Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
+                                        <th>Harga</th>
+                                    @endif
                                     <th>Due Date</th>
                                     <th>Rencana Kedatangan</th>
                                     <th>Status</th>
@@ -139,6 +151,9 @@
                                 <tr>
                                     <td data-label="Item">
                                         <strong>{{ $item->item_name }}</strong>
+                                        @if($item->purpose)
+                                            <br><span class="badge badge-info text-xs mt-1" style="background-color: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; font-weight: normal; font-size: 0.7rem;"><i class="fas fa-bullseye mr-1"></i>{{ $item->purpose }}</span>
+                                        @endif
                                         @if($item->attachment)
                                             <br><a href="{{ asset('storage/' . $item->attachment) }}" 
                                                    class="text-blue-600 preview-attachment" 
@@ -186,6 +201,39 @@
                                             @endif
                                         @endif
                                     </td>
+                                    @if(Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
+                                        <td data-label="Harga">
+                                            @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                                                <div class="form-group mb-0">
+                                                    <div class="input-group input-group-sm" style="min-width: 140px; max-width: 180px;">
+                                                        <div class="input-group-prepend">
+                                                            <span class="input-group-text bg-secondary text-white" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.1);">Rp</span>
+                                                        </div>
+                                                        <input type="number" step="0.01" name="estimates[{{ $item->id }}][estimated_price]" class="form-control form-control-sm estimate-price-input text-white" placeholder="Harga Estimasi" value="{{ $item->estimated_price ?: '' }}" required data-id="{{ $item->id }}" data-qty="{{ $item->quantity }}" data-purpose="{{ $item->purpose }}" form="estimates-submit-form" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">
+                                                    </div>
+                                                    <div class="text-xs text-muted mt-1 total-estimate-display" id="total-estimate-{{ $item->id }}" style="font-size: 0.7rem;">
+                                                        Total: Rp {{ number_format($item->quantity * ($item->estimated_price ?: 0), 0, ',', '.') }}
+                                                    </div>
+                                                    <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
+                                                </div>
+                                            @elseif($item->status === 'pending_estimate')
+                                                <span class="text-warning text-xs font-italic"><i class="fas fa-hourglass-half mr-1"></i> Menunggu Estimasi</span>
+                                                <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
+                                            @else
+                                                <div class="text-xs">
+                                                    <span class="text-gray-400">Est:</span> <strong>Rp {{ number_format($item->estimated_price, 0, ',', '.') }}</strong>
+                                                    <br><span class="text-gray-500">(Total: Rp {{ number_format($item->total_price, 0, ',', '.') }})</span>
+                                                    <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
+                                                    @if(in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                        <div class="mt-1 border-top border-secondary pt-1">
+                                                            <span class="text-success">Aktual:</span> <strong>Rp {{ number_format($item->actual_price, 0, ',', '.') }}</strong>
+                                                            <br><span class="text-success small">(Total: Rp {{ number_format($item->actual_total_price, 0, ',', '.') }})</span>
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                            @endif
+                                        </td>
+                                    @endif
                                     <td data-label="Due Date">{{ $item->due_date ?? '-' }}</td>
                                     <td data-label="Rencana Tiba">
                                         @if($item->deliveryPlans->isNotEmpty())
@@ -355,7 +403,7 @@
                                             <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                 @csrf
                                                 <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
-                                                    <option value="approved_gm" {{ $item->status == 'approved_gm' ? 'selected' : '' }}>
+                                                    <option value="approved_gm" {{ in_array($item->status, ['approved_gm', 'approved_proc']) ? 'selected' : '' }}>
                                                         Ready to Process {{ $item->processed_at ? '(' . $item->processed_at->format('d/m H:i') . ')' : '' }}
                                                     </option>
                                                     <option value="ordered" {{ $item->status == 'ordered' ? 'selected' : '' }}>
@@ -453,9 +501,25 @@
                                 </tr>
 
                                 @endforeach
-                            </tbody>
                         </table>
                     </div>
+
+                    @if($purchaseRequest->items->where('status', 'pending_estimate')->isNotEmpty() && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                        <div class="mt-4 p-3 rounded d-flex justify-content-between align-items-center flex-wrap" style="background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); gap: 10px;">
+                            <div class="text-sm text-gray-300">
+                                <i class="fas fa-info-circle text-warning mr-1"></i>
+                                Masukkan estimasi harga satuan untuk setiap item di atas, lalu klik tombol di sebelah kanan untuk mengirim ke Manager.
+                            </div>
+                            <div>
+                                <form id="estimates-submit-form" action="{{ route('purchase-requests.save-estimates', $purchaseRequest) }}" method="POST" class="d-inline">
+                                    @csrf
+                                    <button type="submit" class="btn btn-warning btn-sm font-weight-bold shadow-sm">
+                                        <i class="fas fa-paper-plane mr-1"></i> Kirim Estimasi ke Manager
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    @endif
                 </div>
             </div>
         </div>
@@ -981,24 +1045,60 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            // Fetch and render budget details
-            const payloadItems = [
+            const requestDate = "{{ $purchaseRequest->request_date->format('Y-m-d') }}";
+            const budgetDetailsCard = document.getElementById('budget-details-card');
+
+            const allItems = [
                 @foreach($purchaseRequest->items as $item)
-                    @if($item->purpose)
-                        {
+                {
+                    id: "{{ $item->id }}",
+                    purpose: {!! json_encode($item->purpose) !!},
+                    qty: {{ (float) $item->quantity }},
+                    estimated_price: {{ (float) ($item->estimated_price ?: 0) }},
+                    status: "{{ $item->status }}"
+                },
+                @endforeach
+            ];
+
+            function getPayloadItems() {
+                const items = [];
+                // First, add all static items
+                @foreach($purchaseRequest->items as $item)
+                    @if($item->status !== 'pending_estimate' && $item->purpose)
+                        items.push({
                             purpose: {!! json_encode($item->purpose) !!},
                             amount: {{ (float) ($item->quantity * $item->estimated_price) }},
                             actual_amount: {{ (float) ($item->actual_total_price ?? 0) }},
                             is_committed: {{ in_array($item->status, ['ordered', 'delivered', 'completed']) ? 'true' : 'false' }},
-                            is_uncommitted_active: {{ in_array($item->status, ['pending', 'approved_om', 'approved_gm']) ? 'true' : 'false' }}
-                        },
+                            is_uncommitted_active: {{ in_array($item->status, ['pending', 'approved_om', 'approved_gm', 'approved_proc']) ? 'true' : 'false' }}
+                        });
                     @endif
                 @endforeach
-            ];
-            const requestDate = "{{ $purchaseRequest->request_date->format('Y-m-d') }}";
 
-            const budgetDetailsCard = document.getElementById('budget-details-card');
-            if (payloadItems.length > 0 && budgetDetailsCard) {
+                // Then, add all estimate inputs
+                document.querySelectorAll('.estimate-price-input').forEach(input => {
+                    const price = parseFloat(input.value) || 0;
+                    const qty = parseFloat(input.dataset.qty) || 0;
+                    const purpose = input.dataset.purpose;
+                    
+                    if (purpose) {
+                        items.push({
+                            purpose: purpose,
+                            amount: qty * price,
+                            actual_amount: 0,
+                            is_committed: false,
+                            is_uncommitted_active: true // treat as active uncommitted since it is being submitted
+                        });
+                    }
+                });
+
+                return items;
+            }
+
+            function refreshBudgetDetails() {
+                const payloadItems = getPayloadItems();
+                if (payloadItems.length === 0 || !budgetDetailsCard) return;
+
                 const budgetDetailsTbody = document.getElementById('budget-details-tbody');
 
                 fetch('/api/internal/check-budget', {
@@ -1049,15 +1149,22 @@
                             // Realisasi sebelum PR: usage dari Finance dikurangi pengeluaran aktual dari PR ini yang sudah tercommit
                             const usage = usageRaw !== null ? (usageRaw - actualCommitted) : null;
                             
-                            // Sisa pagu: limit - realisasi_sebelum - estimated_uncommitted - actual_committed
-                            // Yang secara matematis setara dengan limit - usageRaw - estimatedUncommitted
+                            // Sisa pagu: limit - usageRaw - estimatedUncommitted
                             const remaining = limit !== null && usageRaw !== null ? (limit - usageRaw - estimatedUncommitted) : null;
                             
                             const limitStr = limit !== null ? formatIDR(limit) : '-';
                             const usageStr = usage !== null ? formatIDR(usage) : '-';
-                            const requestedStr = formatIDR(requested);
-                            const actualStr = formatIDR(actual);
                             const remainingStr = remaining !== null ? formatIDR(remaining) : '-';
+                            
+                            // Split columns
+                            const estPR = requested;
+                            const actPR = actualCommitted;
+                            
+                            const estPRStr = estPR > 0 ? formatIDR(estPR) : '-';
+                            let actPRStr = actPR > 0 ? formatIDR(actPR) : '-';
+                            if (actPR > 0 && result.recorded_expense_amount !== null && Math.abs(parseFloat(result.recorded_expense_amount) - actPR) > 0.01) {
+                                actPRStr = `${formatIDR(actPR)}<br><span class="badge badge-warning text-xs mt-1" title="Direvisi oleh Finance"><i class="fas fa-edit mr-1"></i>Rev: ${formatIDR(result.recorded_expense_amount)}</span>`;
+                            }
                             
                             let statusBadge = '<span class="badge badge-secondary">-</span>';
                             if (remaining !== null) {
@@ -1068,17 +1175,13 @@
                                 }
                             }
 
-                            let actualDisplay = actualStr;
-                            if (result.recorded_expense_amount !== null && Math.abs(parseFloat(result.recorded_expense_amount) - actual) > 0.01) {
-                                actualDisplay = `${actualStr}<br><span class="badge badge-warning text-xs mt-1" title="Direvisi oleh Finance"><i class="fas fa-edit mr-1"></i>Rev: ${formatIDR(result.recorded_expense_amount)}</span>`;
-                            }
-
                             html += `
                                 <tr>
                                     <td><strong>${purpose}</strong></td>
                                     <td class="text-right text-info font-weight-bold">${limitStr}</td>
                                     <td class="text-right text-muted">${usageStr}</td>
-                                    <td class="text-right text-white font-weight-bold">${actualDisplay}</td>
+                                    <td class="text-right text-success font-weight-bold">${estPRStr}</td>
+                                    <td class="text-right text-white font-weight-bold">${actPRStr}</td>
                                     <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
                                     <td class="text-center">${statusBadge}</td>
                                 </tr>
@@ -1086,11 +1189,57 @@
                         });
                         
                         budgetDetailsTbody.innerHTML = html;
+
+                        // Now, update the smart budget alert in each item's row (under the price/input)
+                        allItems.forEach(item => {
+                            const alertDiv = document.getElementById(`smart-budget-alert-${item.id}`);
+                            if (!alertDiv) return;
+
+                            const purpose = item.purpose;
+                            if (!purpose) {
+                                alertDiv.innerHTML = '';
+                                return;
+                            }
+
+                            // If there is an input field for this item, calculate its live total
+                            const input = document.querySelector(`.estimate-price-input[data-id="${item.id}"]`);
+                            let currentPrice = item.estimated_price;
+                            if (input) {
+                                currentPrice = parseFloat(input.value) || 0;
+                            }
+
+                            if (!data.results || !data.results[purpose]) {
+                                alertDiv.innerHTML = `<span class="badge badge-secondary text-xs" style="font-size: 0.65rem; padding: 2px 4px;"><i class="fas fa-info-circle mr-1"></i> Pagu tidak dikonfigurasi</span>`;
+                                return;
+                            }
+
+                            const result = data.results[purpose];
+                            const limit = result.budget_limit !== null ? parseFloat(result.budget_limit) : null;
+                            const usageRaw = result.current_usage !== null ? parseFloat(result.current_usage) : null;
+
+                            // Calculate remaining budget based on the live payload (includes modified values of inputs)
+                            const estimatedUncommitted = payloadItems
+                                .filter(it => it.purpose === purpose && it.is_uncommitted_active)
+                                .reduce((sum, it) => sum + it.amount, 0);
+
+                            const remaining = limit !== null && usageRaw !== null ? (limit - usageRaw - estimatedUncommitted) : null;
+
+                            if (remaining !== null) {
+                                if (remaining >= 0) {
+                                    alertDiv.innerHTML = `<span class="badge badge-success text-xs" style="font-size: 0.65rem; padding: 2px 4px;"><i class="fas fa-check-circle mr-1"></i> Pagu Aman (Sisa: ${formatIDR(remaining)})</span>`;
+                                } else {
+                                    alertDiv.innerHTML = `<span class="badge badge-danger text-xs" style="font-size: 0.65rem; padding: 2px 4px; white-space: normal; display: inline-block; text-align: left;"><i class="fas fa-exclamation-triangle mr-1"></i> Over Budget (Kurang: ${formatIDR(Math.abs(remaining))})</span>`;
+                                }
+                            } else {
+                                alertDiv.innerHTML = `<span class="badge badge-secondary text-xs" style="font-size: 0.65rem; padding: 2px 4px;"><i class="fas fa-info-circle mr-1"></i> Pagu tidak dikonfigurasi</span>`;
+                            }
+                        });
+
                     } else {
                         budgetDetailsCard.style.display = 'block';
                         budgetDetailsTbody.innerHTML = `
                             <tr>
-                                <td colspan="6" class="text-center text-muted">
+                                <td colspan="7" class="text-center text-muted">
                                     <i class="fas fa-info-circle mr-1"></i> ${data.message || 'Informasi pagu tidak dikonfigurasi untuk kategori ini.'}
                                 </td>
                             </tr>
@@ -1101,13 +1250,28 @@
                     budgetDetailsCard.style.display = 'block';
                     budgetDetailsTbody.innerHTML = `
                         <tr>
-                            <td colspan="6" class="text-center text-danger">
+                            <td colspan="7" class="text-center text-danger">
                                 <i class="fas fa-exclamation-triangle mr-1"></i> Gagal memuat rincian anggaran.
                             </td>
                         </tr>
                     `;
                 });
             }
+
+            // Run initial load
+            refreshBudgetDetails();
+
+            // Listen for input changes on estimates
+            $(document).on('input keyup', '.estimate-price-input', function() {
+                const input = this;
+                const itemId = input.dataset.id;
+                const qty = parseFloat(input.dataset.qty) || 0;
+                const price = parseFloat(input.value) || 0;
+                const total = qty * price;
+                
+                $(`#total-estimate-${itemId}`).text('Total: ' + formatIDR(total));
+                refreshBudgetDetails();
+            });
 
             function formatIDR(num) {
                 return 'Rp ' + parseFloat(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 });

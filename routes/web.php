@@ -49,6 +49,8 @@ Route::middleware('auth')->group(function () {
         ->name('purchase-requests.approvals');
     Route::resource('purchase-requests', PurchaseRequestController::class);
     Route::post('/api/internal/check-budget', [PurchaseRequestController::class, 'checkBudget'])->name('api.internal.check-budget');
+    Route::post('purchase-requests/{purchaseRequest}/save-estimates', [PurchaseRequestController::class, 'saveEstimates'])->name('purchase-requests.save-estimates');
+    Route::post('purchase-requests/{purchaseRequest}/resend-notification', [PurchaseRequestController::class, 'resendNotification'])->name('purchase-requests.resend-notification');
 
 
 

@@ -103,8 +103,12 @@
                                     <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
                                     <select name="items[${index}][purpose]" class="form-control purpose-select" required>
                                         <option value="">Select Purpose</option>
-                                        @foreach($purposes as $p)
-                                            <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                        @foreach($purposes->groupBy('department_name') as $deptName => $items)
+                                            <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                @foreach($items as $p)
+                                                    <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                                @endforeach
+                                            </optgroup>
                                         @endforeach
                                     </select>
                                 </div>

@@ -30,10 +30,13 @@
                             </div>
                             <div class="col-md-6 mb-3">
                                 <label for="pr_type" class="form-label">PR Type (Operational / Non-Operational) *</label>
-                                <select class="form-control @error('pr_type') is-invalid @enderror" id="pr_type" name="pr_type" required>
+                                <select class="form-control @error('pr_type') is-invalid @enderror" id="pr_type" name="pr_type" required @disabled($purchaseRequest->status !== 'draft')>
                                     <option value="operational" {{ old('pr_type', $purchaseRequest->pr_type) == 'operational' ? 'selected' : '' }}>Operational</option>
                                     <option value="non_operational" {{ old('pr_type', $purchaseRequest->pr_type) == 'non_operational' ? 'selected' : '' }}>Non - Operational</option>
                                 </select>
+                                @if($purchaseRequest->status !== 'draft')
+                                    <input type="hidden" name="pr_type" value="{{ $purchaseRequest->pr_type }}">
+                                @endif
                                 @error('pr_type') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
                         </div>
@@ -45,9 +48,11 @@
                     <div class="p-6 text-gray-900">
                         <div class="d-flex justify-content-between mb-4">
                             <h3 class="text-lg font-medium">Items</h3>
-                            <button type="button" class="btn btn-success btn-sm" id="add-item">
-                                <i class="fas fa-plus"></i> Add Item
-                            </button>
+                            @if($purchaseRequest->status === 'draft')
+                                <button type="button" class="btn btn-success btn-sm" id="add-item">
+                                    <i class="fas fa-plus"></i> Add Item
+                                </button>
+                            @endif
                         </div>
 
                         <div id="items-container">
@@ -56,13 +61,13 @@
                                 $lockedItems = $items->filter(function($item) use ($purchaseRequest) {
                                     $isRejected = str_starts_with($item->status, 'rejected');
                                     $isDraft = $purchaseRequest->status === 'draft';
-                                    $isPending = $item->status === 'pending';
+                                    $isPending = in_array($item->status, ['pending', 'pending_estimate']);
                                     return !($isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable()));
                                 });
                                 $editableItems = $items->filter(function($item) use ($purchaseRequest) {
                                     $isRejected = str_starts_with($item->status, 'rejected');
                                     $isDraft = $purchaseRequest->status === 'draft';
-                                    $isPending = $item->status === 'pending';
+                                    $isPending = in_array($item->status, ['pending', 'pending_estimate']);
                                     return $isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable());
                                 });
                             @endphp
@@ -122,9 +127,11 @@
                                                         <span class="badge badge-danger ml-2">Revision Required</span>
                                                     @endif
                                                 </h5>
-                                                <button type="button" class="btn btn-danger btn-xs remove-item" data-index="{{ $index }}">
-                                                    <i class="fas fa-times"></i> Remove
-                                                </button>
+                                                @if($purchaseRequest->status === 'draft')
+                                                    <button type="button" class="btn btn-danger btn-xs remove-item" data-index="{{ $index }}">
+                                                        <i class="fas fa-times"></i> Remove
+                                                    </button>
+                                                @endif
                                             </div>
                                             
                                             <input type="hidden" name="items[{{ $index }}][id]" value="{{ $item->id }}">
@@ -137,45 +144,49 @@
                                                         $isOther = $oldItemName === 'other' || !in_array($oldItemName, $masterItems->pluck('name')->toArray());
                                                         $manualItemName = old("items.{$index}.manual_item_name", ($isOther && $oldItemName !== 'other') ? $item->item_name : '');
                                                     @endphp
-                                                    <select name="items[{{ $index }}][item_name]" id="item_name_select_{{ $index }}" class="form-control tomselect-item" required>
+                                                    <select name="items[{{ $index }}][item_name]" id="item_name_select_{{ $index }}" class="form-control tomselect-item" required @disabled($purchaseRequest->status !== 'draft')>
                                                         <option value="">Select Item Name</option>
                                                         @foreach($masterItems as $masterItem)
                                                             <option value="{{ $masterItem->name }}" {{ $oldItemName == $masterItem->name ? 'selected' : '' }}>{{ $masterItem->name }}</option>
                                                         @endforeach
                                                         <option value="other" {{ $isOther ? 'selected' : '' }}>Others (Tulis Manual)</option>
                                                     </select>
-                                                    <input type="text" name="items[{{ $index }}][manual_item_name]" id="manual_item_name_{{ $index }}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display: {{ $isOther ? 'block' : 'none' }};" value="{{ $manualItemName }}" {{ $isOther ? 'required' : '' }}>
+                                                    <input type="text" name="items[{{ $index }}][manual_item_name]" id="manual_item_name_{{ $index }}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display: {{ $isOther ? 'block' : 'none' }};" value="{{ $manualItemName }}" {{ $isOther ? 'required' : '' }} @disabled($purchaseRequest->status !== 'draft')>
                                                 </div>
                                                  <div class="col-md-3 mb-3">
                                                      <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
-                                                     <select name="items[{{ $index }}][purpose]" class="form-control purpose-select" required>
+                                                     <select name="items[{{ $index }}][purpose]" class="form-control purpose-select" required @disabled($purchaseRequest->status !== 'draft')>
                                                          <option value="">Select Purpose</option>
-                                                         @foreach($purposes as $p)
-                                                             <option value="{{ $p->name }}" {{ old("items.{$index}.purpose", $item->purpose) == $p->name ? 'selected' : '' }}>{{ $p->name }}</option>
-                                                         @endforeach
+                                                          @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
+                                                              <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                                  @foreach($deptItems as $p)
+                                                                      <option value="{{ $p->name }}" {{ old("items.{$index}.purpose", $item->purpose) == $p->name ? 'selected' : '' }}>{{ $p->name }}</option>
+                                                                  @endforeach
+                                                              </optgroup>
+                                                          @endforeach
                                                      </select>
                                                      
                                                  </div>
                                                 <div class="col-md-2 mb-3">
-                                                    <label class="form-label">Quantity *</label>
-                                                    <input type="number" step="0.01" name="items[{{ $index }}][quantity]" class="form-control quantity-input" min="0.01" value="{{ old("items.{$index}.quantity", $item->quantity) }}" required>
-                                                </div>
-                                                <div class="col-md-2 mb-3">
-                                                    <label class="form-label">UOM *</label>
-                                                    @php
-                                                        $oldUom = old("items.{$index}.uom", $item->uom);
-                                                        $isOtherUom = $oldUom === 'other' || (!empty($oldUom) && !in_array($oldUom, $uoms->pluck('name')->toArray()));
-                                                        $manualUom = old("items.{$index}.manual_uom", ($isOtherUom && $oldUom !== 'other') ? $item->uom : '');
-                                                    @endphp
-                                                    <select name="items[{{ $index }}][uom]" class="form-control tomselect-uom" required>
-                                                        <option value="">Select UOM</option>
-                                                        @foreach($uoms as $uomOption)
-                                                            <option value="{{ $uomOption->name }}" {{ (!$isOtherUom && $oldUom == $uomOption->name) ? 'selected' : '' }}>{{ $uomOption->name }}</option>
-                                                        @endforeach
-                                                        <option value="other" {{ $isOtherUom ? 'selected' : '' }}>Others (Tulis Manual)</option>
-                                                    </select>
-                                                    <input type="text" name="items[{{ $index }}][manual_uom]" id="manual_uom_{{ $index }}" class="form-control mt-2" placeholder="Tulis UOM manual..." style="display: {{ $isOtherUom ? 'block' : 'none' }};" value="{{ $manualUom }}" {{ $isOtherUom ? 'required' : '' }}>
-                                                </div>
+                                                     <label class="form-label">Quantity *</label>
+                                                     <input type="number" step="0.01" name="items[{{ $index }}][quantity]" class="form-control quantity-input" min="0.01" value="{{ old("items.{$index}.quantity", $item->quantity) }}" required>
+                                                 </div>
+                                                 <div class="col-md-2 mb-3">
+                                                     <label class="form-label">UOM *</label>
+                                                     @php
+                                                         $oldUom = old("items.{$index}.uom", $item->uom);
+                                                         $isOtherUom = $oldUom === 'other' || (!empty($oldUom) && !in_array($oldUom, $uoms->pluck('name')->toArray()));
+                                                         $manualUom = old("items.{$index}.manual_uom", ($isOtherUom && $oldUom !== 'other') ? $item->uom : '');
+                                                     @endphp
+                                                     <select name="items[{{ $index }}][uom]" class="form-control tomselect-uom" required>
+                                                         <option value="">Select UOM</option>
+                                                         @foreach($uoms as $uomOption)
+                                                             <option value="{{ $uomOption->name }}" {{ (!$isOtherUom && $oldUom == $uomOption->name) ? 'selected' : '' }}>{{ $uomOption->name }}</option>
+                                                         @endforeach
+                                                         <option value="other" {{ $isOtherUom ? 'selected' : '' }}>Others (Tulis Manual)</option>
+                                                     </select>
+                                                     <input type="text" name="items[{{ $index }}][manual_uom]" id="manual_uom_{{ $index }}" class="form-control mt-2" placeholder="Tulis UOM manual..." style="display: {{ $isOtherUom ? 'block' : 'none' }};" value="{{ $manualUom }}" {{ $isOtherUom ? 'required' : '' }}>
+                                                 </div>
                                                 <div class="col-md-2 mb-3">
                                                     <label class="form-label">Attachment / File</label>
                                                     @if($item->attachment)
@@ -183,7 +194,7 @@
                                                             <a href="{{ asset('storage/' . $item->attachment) }}" target="_blank" class="btn btn-xs btn-info">View Current</a>
                                                         </div>
                                                     @endif
-                                                    <input type="file" name="items[{{ $index }}][attachment]" class="form-control">
+                                                    <input type="file" name="items[{{ $index }}][attachment]" class="form-control" @disabled($purchaseRequest->status !== 'draft')>
                                             </div>
                                             <div class="row align-items-end">
                                                 <div class="col-md-12 mb-3">
@@ -197,7 +208,7 @@
                                             <div class="row">
                                                 <div class="col-md-12 mb-3">
                                                     <label class="form-label">Description / Specs</label>
-                                                    <textarea name="items[{{ $index }}][description]" class="form-control" rows="2">{{ old("items.{$index}.description", $item->description) }}</textarea>
+                                                    <textarea name="items[{{ $index }}][description]" class="form-control" rows="2" @disabled($purchaseRequest->status !== 'draft')>{{ old("items.{$index}.description", $item->description) }}</textarea>
                                                 </div>
 
                                                 @if($isRejected && $item->reject_reason)
@@ -265,8 +276,12 @@
                                     <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
                                     <select name="items[${index}][purpose]" class="form-control purpose-select" required>
                                         <option value="">Select Purpose</option>
-                                        @foreach($purposes as $p)
-                                            <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                        @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
+                                            <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                @foreach($deptItems as $p)
+                                                    <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                                @endforeach
+                                            </optgroup>
                                         @endforeach
                                     </select>
                                     

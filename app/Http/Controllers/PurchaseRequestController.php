@@ -37,11 +37,7 @@ class PurchaseRequestController extends Controller
             return Purpose::all();
         }
 
-        $deptName = Auth::user()->department?->name;
         $categoriesUrl = str_replace('/check', '/categories', $apiUrl);
-        if ($deptName) {
-            $categoriesUrl .= '?department_name=' . urlencode($deptName);
-        }
 
         try {
             $response = \Illuminate\Support\Facades\Http::withoutVerifying()
@@ -63,8 +59,17 @@ class PurchaseRequestController extends Controller
             if ($response->successful()) {
                 $body = $response->json();
                 if (isset($body['status']) && $body['status'] === 'success' && isset($body['data'])) {
-                    return collect($body['data'])->map(function ($name) {
-                        return (object) ['name' => $name];
+                    return collect($body['data'])->map(function ($item) {
+                        if (is_array($item)) {
+                            return (object) [
+                                'name' => $item['name'] ?? '',
+                                'department_name' => $item['department_name'] ?? 'Lainnya'
+                            ];
+                        }
+                        return (object) [
+                            'name' => $item,
+                            'department_name' => 'Lainnya'
+                        ];
                     });
                 }
             }
@@ -327,16 +332,7 @@ class PurchaseRequestController extends Controller
         }
 
         $isDraft = $request->action === 'draft';
-        if (!$isDraft) {
-            foreach ($purposeAmounts as $purpose => $requestedAmount) {
-                if (empty($purpose))
-                    continue;
-                $budgetCheck = $this->validateBudgetWithFinance($purpose, $request->request_date, $requestedAmount);
-                if (isset($budgetCheck['is_allowed']) && $budgetCheck['is_allowed'] === false) {
-                    return redirect()->back()->with('error', $budgetCheck['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.")->withInput();
-                }
-            }
-        }
+        // No budget blocking check during user initial submission since estimated prices are 0.
 
         \DB::beginTransaction();
         try {
@@ -393,43 +389,25 @@ class PurchaseRequestController extends Controller
                     'total_price' => $itemTotal,
                     'due_date' => $item['due_date'] ?? null,
                     'attachment' => $attachmentPath,
-                    'status' => 'pending',
+                    'status' => $isDraft ? 'pending' : 'pending_estimate',
                     'purpose' => $item['purpose'] ?? null,
                 ]);
             }
 
             $purchaseRequest->update(['total_amount' => $totalAmount]);
 
-            if (!$isDraft) {
-                // Create initial approval record based on PR type
-                $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
-                $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
-
-                Approval::create([
-                    'purchase_request_id' => $purchaseRequest->id,
-                    'approver_id' => null, // Will be assigned when someone approves
-                    'approver_role' => $approverRole,
-                    'approval_type' => $approvalType,
-                    'status' => 'pending',
-                ]);
-            }
-
-
             \DB::commit();
 
             if (!$isDraft) {
-                // Notify Management
-                $managers = $this->getSharedRecipients($purchaseRequest);
+                // Notify Procurement and Superadmin that a new PR is waiting for estimate input
+                $procurements = User::role(['procurement', 'superadmin'])->get();
+                $filtered = $procurements->reject(function ($user) {
+                    return $user->id == auth()->id();
+                });
 
-                \Log::info('PR Submitted. Notifying managers:', [
-                    'pr_id' => $purchaseRequest->id,
-                    'dept_id' => $purchaseRequest->department_id,
-                    'notified_users' => $managers->pluck('name', 'id')->toArray()
-                ]);
-
-                if ($managers->isNotEmpty()) {
-                    Notification::send($managers, new PrSubmittedNotification($purchaseRequest));
-                    Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                if ($filtered->isNotEmpty()) {
+                    Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
+                    Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
                 }
             }
 
@@ -475,84 +453,44 @@ class PurchaseRequestController extends Controller
         \Log::info('PR Update attempt', ['id' => $purchaseRequest->id, 'data' => $request->all()]);
         $this->authorize('edit pr', $purchaseRequest);
 
-        $purposeAmounts = [];
-        if ($request->has('items') && is_array($request->items)) {
-            foreach ($request->items as $item) {
-                if (isset($item['id'])) {
-                    $existingItem = PrItem::find($item['id']);
-                    $isRejected = $existingItem ? str_starts_with($existingItem->status, 'rejected') : false;
-                    $isDraft = $purchaseRequest->status === 'draft';
-                    $isPending = $existingItem ? $existingItem->status === 'pending' : false;
-                    $canEditItem = $isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable());
-                    if (!$canEditItem && $existingItem) {
-                        $p = $existingItem->purpose;
-                        $amt = (float) $existingItem->total_price;
-                        $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
-                        continue;
-                    }
-                }
-                $p = $item['purpose'] ?? '';
-                $amt = (float) ($item['quantity'] ?? 0) * (float) ($item['estimated_price'] ?? 0);
-                $purposeAmounts[$p] = ($purposeAmounts[$p] ?? 0) + $amt;
-            }
-        }
-
-        $isDraft = $request->action === 'draft';
-        if (!$isDraft) {
-            foreach ($purposeAmounts as $purpose => $requestedAmount) {
-                if (empty($purpose))
-                    continue;
-                $budgetCheck = $this->validateBudgetWithFinance($purpose, $request->request_date, $requestedAmount);
-                if (isset($budgetCheck['is_allowed']) && $budgetCheck['is_allowed'] === false) {
-                    return redirect()->back()->with('error', $budgetCheck['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.")->withInput();
-                }
-            }
-        }
+        $isPrDraft = $purchaseRequest->status === 'draft';
 
         \DB::beginTransaction();
         try {
-            $request->validate([
-                'request_date' => 'required|date',
-                'pr_type' => 'required|in:operational,non_operational',
-                'items' => 'required|array|min:1',
-                'items.*.purpose' => 'required|string|max:255',
-                'items.*.item_name' => 'required|string|max:255',
-                'items.*.manual_item_name' => 'nullable|string|max:255',
-                'items.*.quantity' => 'required|numeric|min:0.01',
-                'items.*.uom' => 'required|string|max:50',
-                'items.*.manual_uom' => 'nullable|string|max:50',
-                'items.*.due_date' => 'nullable|string|max:255',
-                'items.*.description' => 'nullable|string',
-            ]);
+            if ($isPrDraft) {
+                // If it is a draft, fully editable as before
+                $request->validate([
+                    'request_date' => 'required|date',
+                    'pr_type' => 'required|in:operational,non_operational',
+                    'items' => 'required|array|min:1',
+                    'items.*.purpose' => 'required|string|max:255',
+                    'items.*.item_name' => 'required|string|max:255',
+                    'items.*.manual_item_name' => 'nullable|string|max:255',
+                    'items.*.quantity' => 'required|numeric|min:0.01',
+                    'items.*.uom' => 'required|string|max:50',
+                    'items.*.manual_uom' => 'nullable|string|max:50',
+                    'items.*.due_date' => 'nullable|string|max:255',
+                    'items.*.description' => 'nullable|string',
+                ]);
 
-            // Update existing items or create new ones
-            $totalAmount = 0;
-            $submittedItemIds = [];
+                $totalAmount = 0;
+                $submittedItemIds = [];
 
-            foreach ($request->items as $itemData) {
-                $attachmentPath = null;
-                if (isset($itemData['attachment']) && $itemData['attachment']->isValid()) {
-                    $attachmentPath = $itemData['attachment']->store('pr-attachments', 'public');
-                }
+                foreach ($request->items as $itemData) {
+                    $attachmentPath = null;
+                    if (isset($itemData['attachment']) && $itemData['attachment']->isValid()) {
+                        $attachmentPath = $itemData['attachment']->store('pr-attachments', 'public');
+                    }
 
-                if (isset($itemData['id'])) {
-                    $item = PrItem::where('id', $itemData['id'])
-                        ->where('purchase_request_id', $purchaseRequest->id)
-                        ->first();
+                    if (isset($itemData['id'])) {
+                        $item = PrItem::where('id', $itemData['id'])
+                            ->where('purchase_request_id', $purchaseRequest->id)
+                            ->first();
 
-                    if ($item) {
-                        $submittedItemIds[] = $item->id;
-
-                        $isRejected = str_starts_with($item->status, 'rejected');
-                        $isDraft = $purchaseRequest->status === 'draft';
-                        $isPending = $item->status === 'pending';
-
-                        $canEditItem = $isRejected || $isDraft || ($isPending && $purchaseRequest->isEditable());
-
-                        $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
-                        $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
-
-                        if ($canEditItem) {
+                        if ($item) {
+                            $submittedItemIds[] = $item->id;
+                            $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
+                            $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
                             $itemTotal = ($itemData['estimated_price'] ?? 0) * $itemData['quantity'];
                             $totalAmount += $itemTotal;
 
@@ -566,98 +504,124 @@ class PurchaseRequestController extends Controller
                                 'due_date' => $itemData['due_date'] ?? null,
                                 'attachment' => $attachmentPath ?? $item->attachment,
                                 'status' => 'pending',
+                                'purpose' => $itemData['purpose'] ?? null,
+                            ]);
+                        }
+                    } else {
+                        $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
+                        $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
+                        $itemTotal = ($itemData['estimated_price'] ?? 0) * $itemData['quantity'];
+                        $totalAmount += $itemTotal;
+
+                        $newItem = PrItem::create([
+                            'purchase_request_id' => $purchaseRequest->id,
+                            'item_name' => $finalItemName,
+                            'description' => $itemData['description'] ?? null,
+                            'quantity' => $itemData['quantity'],
+                            'uom' => $finalUom,
+                            'estimated_price' => $itemData['estimated_price'] ?? 0,
+                            'total_price' => $itemTotal,
+                            'due_date' => $itemData['due_date'] ?? null,
+                            'attachment' => $attachmentPath,
+                            'status' => 'pending',
+                            'purpose' => $itemData['purpose'] ?? null,
+                        ]);
+                        $submittedItemIds[] = $newItem->id;
+                    }
+                }
+
+                // Delete removed items
+                $purchaseRequest->items()->whereNotIn('id', $submittedItemIds)->delete();
+
+                $isDraftSubmit = $request->action === 'draft';
+                $uniquePurposes = collect($request->items)->pluck('purpose')->filter()->unique()->implode(', ');
+                $purchaseRequest->update([
+                    'request_date' => $request->request_date,
+                    'purpose' => $uniquePurposes ?: 'Multi-purpose',
+                    'pr_type' => $request->pr_type,
+                    'total_amount' => $totalAmount,
+                    'status' => $isDraftSubmit ? 'draft' : 'pending',
+                ]);
+
+                if (!$isDraftSubmit) {
+                    // Changing draft to submitted -> set items to pending_estimate
+                    $purchaseRequest->items()->update(['status' => 'pending_estimate']);
+                    
+                    // Notify Procurement
+                    $procurements = User::role(['procurement', 'superadmin'])->get();
+                    $filtered = $procurements->reject(fn($u) => $u->id == auth()->id());
+                    if ($filtered->isNotEmpty()) {
+                        Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
+                        Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                    }
+                }
+
+            } else {
+                // If it is NOT a draft (submitted PR in estimate/pending/revision stage), restricted editing!
+                $request->validate([
+                    'request_date' => 'required|date',
+                    'items' => 'required|array|min:1',
+                    'items.*.id' => 'required|exists:pr_items,id',
+                    'items.*.quantity' => 'required|numeric|min:0.01',
+                    'items.*.uom' => 'required|string|max:50',
+                    'items.*.manual_uom' => 'nullable|string|max:50',
+                    'items.*.due_date' => 'nullable|string|max:255',
+                ]);
+
+                $totalAmount = 0;
+
+                foreach ($request->items as $itemData) {
+                    $item = PrItem::where('id', $itemData['id'])
+                        ->where('purchase_request_id', $purchaseRequest->id)
+                        ->first();
+
+                    if ($item) {
+                        $isRejected = str_starts_with($item->status, 'rejected');
+                        $isPendingEstimate = $item->status === 'pending_estimate';
+                        $isPending = $item->status === 'pending';
+
+                        $canEdit = $isRejected || $isPendingEstimate || $isPending;
+
+                        if ($canEdit) {
+                            $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
+                            $newTotalPrice = (float) $item->estimated_price * (float) $itemData['quantity'];
+                            $totalAmount += $newTotalPrice;
+
+                            $item->update([
+                                'quantity' => $itemData['quantity'],
+                                'uom' => $finalUom,
+                                'total_price' => $newTotalPrice,
+                                'due_date' => $itemData['due_date'] ?? null,
+                                'status' => 'pending_estimate', // Reset back to pending_estimate so procurement checks new total/budget
                                 'revision_count' => $item->revision_count + ($isRejected ? 1 : 0),
                                 'reject_reason' => null,
                                 'rejected_by' => null,
                                 'rejected_at' => null,
-                                'purpose' => $itemData['purpose'] ?? null,
                             ]);
                         } else {
                             $totalAmount += $item->total_price;
                         }
                     }
-                } else {
-                    $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
-                    $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
-                    $itemTotal = ($itemData['estimated_price'] ?? 0) * $itemData['quantity'];
-                    $totalAmount += $itemTotal;
-
-                    $newItem = PrItem::create([
-                        'purchase_request_id' => $purchaseRequest->id,
-                        'item_name' => $finalItemName,
-                        'description' => $itemData['description'] ?? null,
-                        'quantity' => $itemData['quantity'],
-                        'uom' => $finalUom,
-                        'estimated_price' => $itemData['estimated_price'] ?? 0,
-                        'total_price' => $itemTotal,
-                        'due_date' => $itemData['due_date'] ?? null,
-                        'attachment' => $attachmentPath,
-                        'status' => 'pending',
-                        'purpose' => $itemData['purpose'] ?? null,
-                    ]);
-                    $submittedItemIds[] = $newItem->id;
-                }
-            }
-
-            // Remove items that are NOT present in the submission (deleted by user)
-            $purchaseRequest->items()
-                ->whereNotIn('id', $submittedItemIds)
-                ->where(function ($q) use ($purchaseRequest) {
-                    if ($purchaseRequest->status === 'draft') {
-                        return;
-                    }
-                    $q->whereIn('status', ['pending', 'rejected_om', 'rejected_gm', 'rejected_proc']);
-                })
-                ->delete();
-
-            $isDraft = $request->action === 'draft';
-
-            $uniquePurposes = collect($request->items)->pluck('purpose')->filter()->unique()->implode(', ');
-
-            $purchaseRequest->update([
-                'request_date' => $request->request_date,
-                'purpose' => $uniquePurposes ?: 'Multi-purpose',
-                'pr_type' => $request->pr_type,
-                'total_amount' => $totalAmount,
-                'status' => $isDraft ? 'draft' : 'pending',
-            ]);
-
-            if (!$isDraft) {
-                // Ensure Level 1 approval record exists if not already there
-                $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
-                $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
-
-                $hasLevel1Approval = $purchaseRequest->approvals()->where('approver_role', $approverRole)->exists();
-                if (!$hasLevel1Approval) {
-                    Approval::create([
-                        'purchase_request_id' => $purchaseRequest->id,
-                        'approver_role' => $approverRole,
-                        'approval_type' => $approvalType,
-                        'status' => 'pending',
-                    ]);
                 }
 
-                // Notify Management
-                $managers = $this->getSharedRecipients($purchaseRequest);
-
-                \Log::info('PR Updated/Re-submitted. Notifying managers:', [
-                    'pr_id' => $purchaseRequest->id,
-                    'dept_id' => $purchaseRequest->department_id,
-                    'notified_users' => $managers->pluck('name', 'id')->toArray()
+                $purchaseRequest->update([
+                    'request_date' => $request->request_date,
+                    'total_amount' => $totalAmount,
                 ]);
 
-                if ($managers->isNotEmpty()) {
-                    Notification::send($managers, new PrSubmittedNotification($purchaseRequest));
-                    Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                // Reset approval records since we went back to pending_estimate
+                Approval::where('purchase_request_id', $purchaseRequest->id)->delete();
+
+                // Notify Procurement of the update
+                $procurements = User::role(['procurement', 'superadmin'])->get();
+                $filtered = $procurements->reject(fn($u) => $u->id == auth()->id());
+                if ($filtered->isNotEmpty()) {
+                    Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
+                    Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
                 }
             }
 
-
-
-
-
             \DB::commit();
-
             return redirect()->route('purchase-requests.show', $purchaseRequest)
                 ->with('success', 'Purchase Request updated successfully.');
 
@@ -1469,6 +1433,99 @@ class PurchaseRequestController extends Controller
         ]);
     }
 
+    public function saveEstimates(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        $user = Auth::user();
+        if (!$user->hasRole('procurement') && !$user->hasRole('superadmin')) {
+            return redirect()->back()->with('error', 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'estimates' => 'required|array',
+            'estimates.*.estimated_price' => 'required|numeric|min:0',
+        ]);
+
+        // Calculate purpose amounts for budget check
+        $purposeAmounts = [];
+        $itemsToUpdate = [];
+        foreach ($request->estimates as $itemId => $itemData) {
+            $item = PrItem::find($itemId);
+            if ($item && $item->purchase_request_id === $purchaseRequest->id) {
+                $purpose = $item->purpose;
+                $requestedAmount = (float) $itemData['estimated_price'] * (float) $item->quantity;
+                $purposeAmounts[$purpose] = ($purposeAmounts[$purpose] ?? 0) + $requestedAmount;
+                $itemsToUpdate[] = [
+                    'item' => $item,
+                    'estimated_price' => (float) $itemData['estimated_price'],
+                    'total_price' => $requestedAmount
+                ];
+            }
+        }
+
+        // Validate budget against Finance system
+        foreach ($purposeAmounts as $purpose => $requestedAmount) {
+            if (empty($purpose)) continue;
+            $budgetCheck = $this->validateBudgetWithFinance(
+                $purpose, 
+                $purchaseRequest->request_date, 
+                $requestedAmount,
+                $purchaseRequest->department_id,
+                $purchaseRequest->department?->name,
+                $purchaseRequest->reference
+            );
+            if (isset($budgetCheck['is_allowed']) && $budgetCheck['is_allowed'] === false) {
+                return redirect()->back()->with('error', $budgetCheck['message'] ?? "Anggaran tidak mencukupi untuk kategori {$purpose}.");
+            }
+        }
+
+        \DB::beginTransaction();
+        try {
+            $totalAmount = 0;
+            foreach ($itemsToUpdate as $data) {
+                $item = $data['item'];
+                $item->update([
+                    'estimated_price' => $data['estimated_price'],
+                    'total_price' => $data['total_price'],
+                    'status' => 'pending' // Update to pending to start manager approval
+                ]);
+                $totalAmount += $data['total_price'];
+            }
+
+            $purchaseRequest->update(['total_amount' => $totalAmount]);
+
+            // Create initial manager approval record
+            $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+            $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+
+            // Delete any existing approvals first (in case of a revision/resubmit)
+            Approval::where('purchase_request_id', $purchaseRequest->id)->delete();
+
+            Approval::create([
+                'purchase_request_id' => $purchaseRequest->id,
+                'approver_id' => null,
+                'approver_role' => $approverRole,
+                'approval_type' => $approvalType,
+                'status' => 'pending',
+            ]);
+
+            \DB::commit();
+
+            // Notify Management
+            $managers = $this->getSharedRecipients($purchaseRequest);
+            if ($managers->isNotEmpty()) {
+                Notification::send($managers, new PrSubmittedNotification($purchaseRequest));
+                Notification::send($managers, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+            }
+
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('success', 'Estimasi harga berhasil disimpan dan diajukan ke Manager.');
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR saveEstimates failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal menyimpan estimasi: ' . $e->getMessage());
+        }
+    }
+
     private function getSharedRecipients($purchaseRequest, $requester = null)
     {
         $superadmins = User::role('superadmin')->get();
@@ -1680,5 +1737,80 @@ class PurchaseRequestController extends Controller
         } catch (\Exception $e) {
             \Log::error("Failed to remove expense from Finance API for PR {$pr->pr_number}: " . $e->getMessage());
         }
+    }
+
+    public function resendNotification(PurchaseRequest $purchaseRequest)
+    {
+        $recipients = collect();
+        $notification = null;
+        $subject = "";
+
+        if ($purchaseRequest->status === 'pending_estimate') {
+            $recipients = User::role(['procurement', 'superadmin'])->get();
+            $notification = new PrSubmittedNotification($purchaseRequest);
+            $subject = "Menunggu Estimasi Harga";
+        } elseif ($purchaseRequest->status === 'pending') {
+            $recipients = $this->getSharedRecipients($purchaseRequest);
+            $notification = new PrSubmittedNotification($purchaseRequest);
+            $subject = "Menunggu Persetujuan Manager";
+        } elseif ($purchaseRequest->status === 'approved_om') {
+            $recipients = User::role('general_manager')->get();
+            $notification = new PrActionRequiredNotification($purchaseRequest, "PR {$purchaseRequest->pr_number} menunggu persetujuan General Manager.");
+            $subject = "Menunggu Persetujuan GM";
+        } elseif (in_array($purchaseRequest->status, ['approved_gm', 'approved_proc'])) {
+            $recipients = User::role('procurement')->get();
+            $notification = new PrActionRequiredNotification($purchaseRequest, "PR {$purchaseRequest->pr_number} menunggu proses Procurement.");
+            $subject = "Menunggu Proses Order";
+        } else {
+            $recipients = collect([$purchaseRequest->user])->concat(User::role('superadmin')->get())->unique('id');
+            $notification = new PrStatusUpdatedNotification($purchaseRequest, "Notifikasi kirim ulang untuk PR {$purchaseRequest->pr_number} dengan status: " . strtoupper($purchaseRequest->status));
+            $subject = "Pembaruan Status PR";
+        }
+
+        $recipients = $recipients->filter(function($user) {
+            return !empty($user->email);
+        });
+
+        if ($recipients->isEmpty()) {
+            return redirect()->back()->with('error', 'Tidak ada penerima email yang valid ditemukan untuk status PR saat ini.');
+        }
+
+        $sentToNames = [];
+        $errors = [];
+
+        foreach ($recipients as $recipient) {
+            try {
+                Notification::sendNow($recipient, new SyncMailWrapper($notification));
+                $sentToNames[] = "{$recipient->name} ({$recipient->email})";
+            } catch (\Exception $e) {
+                \Log::error("Manual resend failed for {$recipient->email}: " . $e->getMessage());
+                $errors[] = "{$recipient->name}: " . $e->getMessage();
+            }
+        }
+
+        if (count($sentToNames) > 0) {
+            $msg = "Email notifikasi [{$subject}] berhasil dikirim ulang ke: " . implode(', ', $sentToNames);
+            if (count($errors) > 0) {
+                $msg .= ". Namun gagal kirim ke: " . implode(', ', $errors);
+            }
+            return redirect()->back()->with('success', $msg);
+        }
+
+        return redirect()->back()->with('error', 'Gagal mengirim email: ' . implode(', ', $errors));
+    }
+}
+
+class SyncMailWrapper extends \Illuminate\Notifications\Notification
+{
+    public function __construct(private \Illuminate\Notifications\Notification $notification) {}
+
+    public function via(object $notifiable): array
+    {
+        return ['mail'];
+    }
+
+    public function toMail(object $notifiable)
+    {
+        return $this->notification->toMail($notifiable);
     }
 }

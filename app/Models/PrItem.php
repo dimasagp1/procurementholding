@@ -65,6 +65,7 @@ class PrItem extends Model
     public function canBeApprovedBy($role)
     {
         $approvalFlow = [
+            'pending_estimate' => ['procurement'],
             'pending' => ['operational_manager', 'manager_fat'],
             'approved_om' => ['general_manager'],
             'approved_gm' => ['procurement'],

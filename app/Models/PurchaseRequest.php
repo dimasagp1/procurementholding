@@ -63,10 +63,15 @@ class PurchaseRequest extends Model
         $items = $this->items;
         if ($items->isEmpty()) return 'Pending';
 
+        // Check if any item is pending estimate
+        if ($items->contains('status', 'pending_estimate')) {
+            return 'Pending Estimate';
+        }
+
         if ($this->hasRejectedItems()) {
             // Check if any item is already approved or further
             $hasProgress = $items->contains(function($item) {
-                return !in_array($item->status, ['pending', 'rejected_om', 'rejected_gm', 'rejected_proc']);
+                return !in_array($item->status, ['pending', 'pending_estimate', 'rejected_om', 'rejected_gm', 'rejected_proc']);
             });
             return $hasProgress ? 'Partial / Revision' : 'Revision Required';
         }
@@ -83,7 +88,7 @@ class PurchaseRequest extends Model
         if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered', 'approved_proc', 'approved_gm', 'approved_om'])) return $level1Label;
 
         // If not all at least OM but some are OM, it's Processing
-        if (collect($statuses)->contains(fn($s) => !in_array($s, ['pending']))) {
+        if (collect($statuses)->contains(fn($s) => !in_array($s, ['pending', 'pending_estimate']))) {
             return 'Processing';
         }
 
@@ -122,12 +127,12 @@ class PurchaseRequest extends Model
         // If it has rejected items, it's in revision mode
         if ($this->hasRejectedItems()) return true;
 
-        // If it's pending but NO items have been approved or rejected yet,
-        // it means the manager hasn't touched it, so the user can still edit.
+        // If it's pending (or any of its items are pending_estimate/pending and not approved yet)
         if ($this->status === 'pending') {
-            return $this->items()->where('status', 'pending')
-                ->whereDoesntHave('approvals')
-                ->count() === $this->items()->count();
+            $hasApprovals = $this->items()->whereIn('status', [
+                'approved_om', 'approved_gm', 'approved_proc', 'ordered', 'delivered', 'completed'
+            ])->exists();
+            return !$hasApprovals;
         }
 
         return false;
@@ -141,16 +146,14 @@ class PurchaseRequest extends Model
         // Draft is always deletable
         if ($this->status === 'draft') return true;
 
-        // Pending is deletable ONLY if it has NO approvals started (or is empty logic)
-        // This prevents deleting PRs that are "Processing" or at "Procurement" stage
+        // Pending is deletable ONLY if it has NO approvals started
         if ($this->status === 'pending') {
-            // Safe to delete if empty
             if ($this->items()->count() === 0) return true;
 
-            // Safe to delete if ALL items are pending AND have NO approvals
-            return $this->items()->where('status', 'pending')
-                ->whereDoesntHave('approvals')
-                ->count() === $this->items()->count();
+            $hasApprovals = $this->items()->whereIn('status', [
+                'approved_om', 'approved_gm', 'approved_proc', 'ordered', 'delivered', 'completed'
+            ])->exists();
+            return !$hasApprovals;
         }
 
         return false;
