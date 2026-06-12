@@ -44,6 +44,7 @@ Route::middleware('auth')->group(function () {
     // Purchase Requests
     Route::get('purchase-requests/rejected', [PurchaseRequestController::class, 'rejected'])->name('purchase-requests.rejected');
     Route::get('purchase-requests/drafts', [PurchaseRequestController::class, 'drafts'])->name('purchase-requests.drafts');
+    Route::post('purchase-requests/{purchaseRequest}/submit-draft', [PurchaseRequestController::class, 'submitDraft'])->name('purchase-requests.submit-draft');
     Route::get('purchase-requests/approvals', [PurchaseRequestController::class, 'approvalQueue'])
         ->middleware('role:operational_manager|manager_fat|general_manager|superadmin')
         ->name('purchase-requests.approvals');

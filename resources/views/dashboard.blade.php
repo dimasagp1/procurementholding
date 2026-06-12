@@ -564,6 +564,22 @@
                                                 title="Detail">
                                             <i class="fas fa-eye"></i>
                                         </button>
+
+                                        @if($pr->isEditable() && (auth()->id() == $pr->user_id || auth()->user()->hasRole('superadmin')))
+                                        <a href="{{ route('purchase-requests.edit', $pr) }}" class="btn btn-warning btn-xs" title="Edit">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        @endif
+
+                                        @if(auth()->id() == $pr->user_id && $pr->isDeletable())
+                                        <form action="{{ route('purchase-requests.destroy', $pr) }}" method="POST" class="d-inline form-confirm" data-message="Delete this PR?">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-danger btn-xs" title="Delete">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                        @endif
                                     </td>
                                 </tr>
                                 {{-- Expanded accordion row --}}

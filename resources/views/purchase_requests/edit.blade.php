@@ -7,7 +7,7 @@
 
     <div class="pb-12 pt-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <form method="POST" action="{{ route('purchase-requests.update', $purchaseRequest) }}" enctype="multipart/form-data">
+            <form id="purchase-request-form" method="POST" action="{{ route('purchase-requests.update', $purchaseRequest) }}" enctype="multipart/form-data">
                 @csrf
                 @method('PUT')
                 
@@ -144,18 +144,18 @@
                                                         $isOther = $oldItemName === 'other' || !in_array($oldItemName, $masterItems->pluck('name')->toArray());
                                                         $manualItemName = old("items.{$index}.manual_item_name", ($isOther && $oldItemName !== 'other') ? $item->item_name : '');
                                                     @endphp
-                                                    <select name="items[{{ $index }}][item_name]" id="item_name_select_{{ $index }}" class="form-control tomselect-item" required @disabled($purchaseRequest->status !== 'draft')>
+                                                    <select name="items[{{ $index }}][item_name]" id="item_name_select_{{ $index }}" class="form-control tomselect-item" required>
                                                         <option value="">Select Item Name</option>
                                                         @foreach($masterItems as $masterItem)
                                                             <option value="{{ $masterItem->name }}" {{ $oldItemName == $masterItem->name ? 'selected' : '' }}>{{ $masterItem->name }}</option>
                                                         @endforeach
                                                         <option value="other" {{ $isOther ? 'selected' : '' }}>Others (Tulis Manual)</option>
                                                     </select>
-                                                    <input type="text" name="items[{{ $index }}][manual_item_name]" id="manual_item_name_{{ $index }}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display: {{ $isOther ? 'block' : 'none' }};" value="{{ $manualItemName }}" {{ $isOther ? 'required' : '' }} @disabled($purchaseRequest->status !== 'draft')>
+                                                    <input type="text" name="items[{{ $index }}][manual_item_name]" id="manual_item_name_{{ $index }}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display: {{ $isOther ? 'block' : 'none' }};" value="{{ $manualItemName }}" {{ $isOther ? 'required' : '' }}>
                                                 </div>
                                                  <div class="col-md-3 mb-3">
                                                      <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
-                                                     <select name="items[{{ $index }}][purpose]" class="form-control purpose-select" required @disabled($purchaseRequest->status !== 'draft')>
+                                                     <select name="items[{{ $index }}][purpose]" class="form-control purpose-select" required>
                                                          <option value="">Select Purpose</option>
                                                           @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
                                                               <optgroup label="{{ $deptName ?: 'Lainnya' }}">
@@ -194,7 +194,7 @@
                                                             <a href="{{ asset('storage/' . $item->attachment) }}" target="_blank" class="btn btn-xs btn-info">View Current</a>
                                                         </div>
                                                     @endif
-                                                    <input type="file" name="items[{{ $index }}][attachment]" class="form-control" @disabled($purchaseRequest->status !== 'draft')>
+                                                    <input type="file" name="items[{{ $index }}][attachment]" class="form-control">
                                             </div>
                                             <div class="row align-items-end">
                                                 <div class="col-md-12 mb-3">
@@ -208,7 +208,7 @@
                                             <div class="row">
                                                 <div class="col-md-12 mb-3">
                                                     <label class="form-label">Description / Specs</label>
-                                                    <textarea name="items[{{ $index }}][description]" class="form-control" rows="2" @disabled($purchaseRequest->status !== 'draft')>{{ old("items.{$index}.description", $item->description) }}</textarea>
+                                                    <textarea name="items[{{ $index }}][description]" class="form-control" rows="2">{{ old("items.{$index}.description", $item->description) }}</textarea>
                                                 </div>
 
                                                 @if($isRejected && $item->reject_reason)
@@ -234,8 +234,10 @@
                 </div>
 
                 <div class="form-actions-sticky mt-4">
-                    <button type="submit" name="action" value="submit" class="btn btn-primary">Update and Submit</button>
-                    <button type="submit" name="action" value="draft" class="btn btn-secondary">Save as Draft</button>
+                    <button type="submit" name="action" value="submit" class="btn btn-primary" id="submit-btn">Ajukan PR</button>
+                    @if($purchaseRequest->status === 'draft')
+                        <button type="button" id="save-draft-btn" class="btn btn-secondary">Save as Draft</button>
+                    @endif
                     <a href="{{ route('purchase-requests.index') }}" class="btn btn-link text-gray-600">Cancel</a>
                 </div>
 
@@ -457,6 +459,41 @@
                     }
                 }
             });
+
+            const saveDraftBtn = document.getElementById('save-draft-btn');
+            if (saveDraftBtn) {
+                saveDraftBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+
+                    const form = document.getElementById('purchase-request-form');
+
+                    // 1. Remove required from all native form elements
+                    form.querySelectorAll('input[required], select[required], textarea[required]').forEach(function (el) {
+                        el.removeAttribute('required');
+                    });
+
+                    // 2. Inject hidden action=draft
+                    form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                    const actionInput = document.createElement('input');
+                    actionInput.type = 'hidden';
+                    actionInput.name = 'action';
+                    actionInput.value = 'draft';
+                    form.appendChild(actionInput);
+
+                    // 3. Submit natively
+                    form.submit();
+                });
+            }
+
+            const submitBtn = document.getElementById('submit-btn');
+            if (submitBtn) {
+                submitBtn.addEventListener('click', function () {
+                    const form = document.getElementById('purchase-request-form');
+                    if (form) {
+                        form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                    }
+                });
+            }
         });
     </script>
     <style>

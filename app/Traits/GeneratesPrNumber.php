@@ -14,9 +14,10 @@ trait GeneratesPrNumber
                 $departmentCode = $model->department->code ?? 'GEN';
                 $date = now()->format('Ymd');
                 
-                // Get the last PR number for this department today to increment
+                // Get the last PR number for this department this month to increment
                 $lastPr = PurchaseRequest::where('department_id', $model->department_id)
-                    ->whereDate('created_at', today())
+                    ->whereYear('created_at', now()->year)
+                    ->whereMonth('created_at', now()->month)
                     ->latest()
                     ->first();
                 

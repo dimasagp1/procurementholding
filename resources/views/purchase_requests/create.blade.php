@@ -7,7 +7,7 @@
 
     <div class="pb-12 pt-6">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <form method="POST" action="{{ route('purchase-requests.store') }}" enctype="multipart/form-data">
+            <form id="purchase-request-form" method="POST" action="{{ route('purchase-requests.store') }}" enctype="multipart/form-data">
                 @csrf
 
                 <!-- Main Info -->
@@ -61,8 +61,8 @@
                 </div>
 
                 <div class="form-actions-sticky mt-4">
-                    <button type="submit" name="action" value="submit" class="btn btn-primary">Submit Request</button>
-                    <button type="submit" name="action" value="draft" class="btn btn-secondary">Save as Draft</button>
+                    <button type="submit" name="action" value="submit" class="btn btn-primary" id="submit-btn">Ajukan PR</button>
+                    <button type="button" id="save-draft-btn" class="btn btn-secondary">Save as Draft</button>
                     <a href="{{ route('purchase-requests.index') }}" class="btn btn-link text-gray-600">Cancel</a>
                 </div>
 
@@ -279,6 +279,38 @@
                         } else {
                         alert('At least one item is required.');
                     }
+                }
+            });
+
+            // Save as Draft: intercept click, strip required from all fields, then submit
+            document.getElementById('save-draft-btn').addEventListener('click', function (e) {
+                e.preventDefault();
+
+                const form = document.getElementById('purchase-request-form');
+
+                // 1. Remove required from all native form elements
+                form.querySelectorAll('input[required], select[required], textarea[required]').forEach(function (el) {
+                    el.removeAttribute('required');
+                });
+
+                // 2. Inject hidden action=draft (avoid relying on button name/value since we use form.submit())
+                // Remove any existing action hidden inputs first
+                form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                const actionInput = document.createElement('input');
+                actionInput.type = 'hidden';
+                actionInput.name = 'action';
+                actionInput.value = 'draft';
+                form.appendChild(actionInput);
+
+                // 3. Submit natively — preserves CSRF token and multipart data correctly
+                form.submit();
+            });
+
+            // Ensure Submit Request button cleans up any injected draft action input
+            document.getElementById('submit-btn').addEventListener('click', function () {
+                const form = document.getElementById('purchase-request-form');
+                if (form) {
+                    form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
                 }
             });
         });

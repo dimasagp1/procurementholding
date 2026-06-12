@@ -192,10 +192,19 @@
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         
-                                        @if($pr->isEditable() && auth()->id() == $pr->user_id)
+                                        @if($pr->isEditable() && (auth()->id() == $pr->user_id || auth()->user()->hasRole('superadmin')))
                                         <a href="{{ route('purchase-requests.edit', $pr) }}" class="btn btn-warning btn-xs" title="Edit">
                                             <i class="fas fa-edit"></i>
                                         </a>
+                                        @endif
+
+                                        @if($pr->status === 'draft' && (auth()->id() == $pr->user_id || auth()->user()->hasRole('superadmin')))
+                                        <form action="{{ route('purchase-requests.submit-draft', $pr) }}" method="POST" class="d-inline form-confirm" data-message="Apakah Anda yakin ingin mengajukan Purchase Request ini?">
+                                            @csrf
+                                            <button type="submit" class="btn btn-success btn-xs" title="Ajukan PR">
+                                                <i class="fas fa-paper-plane"></i>
+                                            </button>
+                                        </form>
                                         @endif
 
                                         @if(auth()->id() == $pr->user_id && $pr->isDeletable())

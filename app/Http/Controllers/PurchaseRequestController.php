@@ -80,6 +80,29 @@ class PurchaseRequestController extends Controller
         return Purpose::all();
     }
 
+    private function getResponsibleDepartmentForPurpose($purpose, $fallbackDeptId = null, $fallbackDeptName = null)
+    {
+        $purposes = $this->getPurposesFromFinance();
+        
+        $matched = collect($purposes)->first(function ($item) use ($purpose) {
+            return strcasecmp($item->name ?? '', $purpose) === 0;
+        });
+
+        if ($matched && isset($matched->department_name) && !empty($matched->department_name)) {
+            $deptName = $matched->department_name;
+            $localDept = Department::where('name', $deptName)->first();
+            return [
+                'id' => $localDept ? $localDept->id : null,
+                'name' => $deptName
+            ];
+        }
+
+        return [
+            'id' => $fallbackDeptId,
+            'name' => $fallbackDeptName
+        ];
+    }
+
     private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null, $reference = null)
     {
         $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
@@ -89,8 +112,12 @@ class PurchaseRequestController extends Controller
             return ['status' => 'success', 'is_allowed' => true];
         }
 
-        $deptId = $departmentId ?? (Auth::check() ? Auth::user()->department_id : null);
-        $deptName = $departmentName ?? (Auth::check() ? Auth::user()->department?->name : null);
+        $fallbackId = $departmentId ?? (Auth::check() ? Auth::user()->department_id : null);
+        $fallbackName = $departmentName ?? (Auth::check() ? Auth::user()->department?->name : null);
+
+        $resolved = $this->getResponsibleDepartmentForPurpose($purpose, $fallbackId, $fallbackName);
+        $deptId = $resolved['id'];
+        $deptName = $resolved['name'];
 
         try {
             $headers = [
@@ -336,20 +363,37 @@ class PurchaseRequestController extends Controller
 
         \DB::beginTransaction();
         try {
-            $request->validate([
-                'request_date' => 'required|date',
-                'pr_type' => 'required|in:operational,non_operational',
-                'items' => 'required|array|min:1',
-                'items.*.purpose' => 'required|string|max:255',
-                'items.*.item_name' => 'required|string|max:255',
-                'items.*.manual_item_name' => 'nullable|string|max:255',
-                'items.*.quantity' => 'required|numeric|min:0.01',
-                'items.*.uom' => 'required|string|max:50',
-                'items.*.manual_uom' => 'nullable|string|max:50',
-                'items.*.due_date' => 'nullable|string|max:255',
-                'items.*.description' => 'nullable|string',
-                'items.*.attachment' => 'nullable|file|max:2048',
-            ]);
+            if ($isDraft) {
+                $request->validate([
+                    'request_date' => 'required|date',
+                    'pr_type' => 'required|in:operational,non_operational',
+                    'items' => 'required|array|min:1',
+                    'items.*.purpose' => 'nullable|string|max:255',
+                    'items.*.item_name' => 'nullable|string|max:255',
+                    'items.*.manual_item_name' => 'nullable|string|max:255',
+                    'items.*.quantity' => 'nullable|numeric|min:0.01',
+                    'items.*.uom' => 'nullable|string|max:50',
+                    'items.*.manual_uom' => 'nullable|string|max:50',
+                    'items.*.due_date' => 'nullable|string|max:255',
+                    'items.*.description' => 'nullable|string',
+                    'items.*.attachment' => 'nullable|file|max:10240',
+                ]);
+            } else {
+                $request->validate([
+                    'request_date' => 'required|date',
+                    'pr_type' => 'required|in:operational,non_operational',
+                    'items' => 'required|array|min:1',
+                    'items.*.purpose' => 'required|string|max:255',
+                    'items.*.item_name' => 'required|string|max:255',
+                    'items.*.manual_item_name' => 'nullable|string|max:255',
+                    'items.*.quantity' => 'required|numeric|min:0.01',
+                    'items.*.uom' => 'required|string|max:50',
+                    'items.*.manual_uom' => 'nullable|string|max:50',
+                    'items.*.due_date' => 'nullable|string|max:255',
+                    'items.*.description' => 'nullable|string',
+                    'items.*.attachment' => 'nullable|file|max:10240',
+                ]);
+            }
 
             $isDraft = $request->action === 'draft';
 
@@ -373,17 +417,18 @@ class PurchaseRequestController extends Controller
                     $attachmentPath = $item['attachment']->store('pr-attachments', 'public');
                 }
 
-                $itemTotal = ($item['estimated_price'] ?? 0) * $item['quantity'];
+                $qty = (float) ($item['quantity'] ?? 0);
+                $itemTotal = ($item['estimated_price'] ?? 0) * $qty;
                 $totalAmount += $itemTotal;
 
-                $finalItemName = $item['item_name'] === 'other' ? $item['manual_item_name'] : $item['item_name'];
-                $finalUom = $item['uom'] === 'other' ? $item['manual_uom'] : $item['uom'];
+                $finalItemName = ($item['item_name'] ?? '') === 'other' ? ($item['manual_item_name'] ?? null) : ($item['item_name'] ?? null);
+                $finalUom = ($item['uom'] ?? '') === 'other' ? ($item['manual_uom'] ?? null) : ($item['uom'] ?? null);
 
                 PrItem::create([
                     'purchase_request_id' => $purchaseRequest->id,
                     'item_name' => $finalItemName,
                     'description' => $item['description'] ?? null,
-                    'quantity' => $item['quantity'],
+                    'quantity' => $qty ?: null,
                     'uom' => $finalUom,
                     'estimated_price' => $item['estimated_price'] ?? 0,
                     'total_price' => $itemTotal,
@@ -459,19 +504,38 @@ class PurchaseRequestController extends Controller
         try {
             if ($isPrDraft) {
                 // If it is a draft, fully editable as before
-                $request->validate([
-                    'request_date' => 'required|date',
-                    'pr_type' => 'required|in:operational,non_operational',
-                    'items' => 'required|array|min:1',
-                    'items.*.purpose' => 'required|string|max:255',
-                    'items.*.item_name' => 'required|string|max:255',
-                    'items.*.manual_item_name' => 'nullable|string|max:255',
-                    'items.*.quantity' => 'required|numeric|min:0.01',
-                    'items.*.uom' => 'required|string|max:50',
-                    'items.*.manual_uom' => 'nullable|string|max:50',
-                    'items.*.due_date' => 'nullable|string|max:255',
-                    'items.*.description' => 'nullable|string',
-                ]);
+                $isDraftSubmit = $request->action === 'draft';
+                if ($isDraftSubmit) {
+                    $request->validate([
+                        'request_date' => 'required|date',
+                        'pr_type' => 'required|in:operational,non_operational',
+                        'items' => 'required|array|min:1',
+                        'items.*.purpose' => 'nullable|string|max:255',
+                        'items.*.item_name' => 'nullable|string|max:255',
+                        'items.*.manual_item_name' => 'nullable|string|max:255',
+                        'items.*.quantity' => 'nullable|numeric|min:0.01',
+                        'items.*.uom' => 'nullable|string|max:50',
+                        'items.*.manual_uom' => 'nullable|string|max:50',
+                        'items.*.due_date' => 'nullable|string|max:255',
+                        'items.*.description' => 'nullable|string',
+                        'items.*.attachment' => 'nullable|file|max:10240',
+                    ]);
+                } else {
+                    $request->validate([
+                        'request_date' => 'required|date',
+                        'pr_type' => 'required|in:operational,non_operational',
+                        'items' => 'required|array|min:1',
+                        'items.*.purpose' => 'required|string|max:255',
+                        'items.*.item_name' => 'required|string|max:255',
+                        'items.*.manual_item_name' => 'nullable|string|max:255',
+                        'items.*.quantity' => 'required|numeric|min:0.01',
+                        'items.*.uom' => 'required|string|max:50',
+                        'items.*.manual_uom' => 'nullable|string|max:50',
+                        'items.*.due_date' => 'nullable|string|max:255',
+                        'items.*.description' => 'nullable|string',
+                        'items.*.attachment' => 'nullable|file|max:10240',
+                    ]);
+                }
 
                 $totalAmount = 0;
                 $submittedItemIds = [];
@@ -562,10 +626,15 @@ class PurchaseRequestController extends Controller
                     'request_date' => 'required|date',
                     'items' => 'required|array|min:1',
                     'items.*.id' => 'required|exists:pr_items,id',
+                    'items.*.item_name' => 'required|string|max:255',
+                    'items.*.manual_item_name' => 'nullable|string|max:255',
+                    'items.*.purpose' => 'required|string|max:255',
                     'items.*.quantity' => 'required|numeric|min:0.01',
                     'items.*.uom' => 'required|string|max:50',
                     'items.*.manual_uom' => 'nullable|string|max:50',
                     'items.*.due_date' => 'nullable|string|max:255',
+                    'items.*.description' => 'nullable|string',
+                    'items.*.attachment' => 'nullable|file|max:10240',
                 ]);
 
                 $totalAmount = 0;
@@ -583,15 +652,25 @@ class PurchaseRequestController extends Controller
                         $canEdit = $isRejected || $isPendingEstimate || $isPending;
 
                         if ($canEdit) {
+                            $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
                             $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
                             $newTotalPrice = (float) $item->estimated_price * (float) $itemData['quantity'];
                             $totalAmount += $newTotalPrice;
 
+                            $attachmentPath = null;
+                            if (isset($itemData['attachment']) && $itemData['attachment']->isValid()) {
+                                $attachmentPath = $itemData['attachment']->store('pr-attachments', 'public');
+                            }
+
                             $item->update([
+                                'item_name' => $finalItemName,
+                                'purpose' => $itemData['purpose'] ?? null,
+                                'description' => $itemData['description'] ?? null,
                                 'quantity' => $itemData['quantity'],
                                 'uom' => $finalUom,
                                 'total_price' => $newTotalPrice,
                                 'due_date' => $itemData['due_date'] ?? null,
+                                'attachment' => $attachmentPath ?? $item->attachment,
                                 'status' => 'pending_estimate', // Reset back to pending_estimate so procurement checks new total/budget
                                 'revision_count' => $item->revision_count + ($isRejected ? 1 : 0),
                                 'reject_reason' => null,
@@ -1039,7 +1118,7 @@ class PurchaseRequestController extends Controller
         $this->authorize('edit pr', $item->purchaseRequest);
 
         $request->validate([
-            'status' => 'required|in:approved_gm,ordered,delivered,completed'
+            'status' => 'required|in:approved_proc,ordered,delivered,completed'
         ]);
 
         $updateData = ['status' => $request->status];
@@ -1067,7 +1146,7 @@ class PurchaseRequestController extends Controller
             $updateData['actual_total_price'] = $item->quantity * $request->actual_price;
             $updateData['ordered_at'] = now();
             $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$request->po_number}.";
-        } elseif ($request->status === 'approved_gm') {
+        } elseif ($request->status === 'approved_proc') {
             $updateData['processed_at'] = now();
             $msg = "Item '{$item->item_name}' telah disetujui (Approved).";
         } elseif ($request->status === 'delivered') {
@@ -1356,6 +1435,51 @@ class PurchaseRequestController extends Controller
         $title = "Draft Purchase Requests";
 
         return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title'));
+    }
+
+    public function submitDraft(PurchaseRequest $purchaseRequest)
+    {
+        $this->authorize('edit pr', $purchaseRequest);
+
+        if ($purchaseRequest->status !== 'draft') {
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('error', 'PR ini sudah diajukan atau tidak dalam status draft.');
+        }
+
+        // Validate that all items are complete
+        foreach ($purchaseRequest->items as $item) {
+            if (empty($item->item_name) || empty($item->quantity) || empty($item->uom) || empty($item->purpose)) {
+                return redirect()->route('purchase-requests.edit', $purchaseRequest)
+                    ->with('error', 'Draft tidak dapat diajukan karena data item belum lengkap. Silakan lengkapi data item terlebih dahulu.');
+            }
+        }
+
+        \DB::beginTransaction();
+        try {
+            // Update PR status to pending
+            $purchaseRequest->update(['status' => 'pending']);
+
+            // Update items status to pending_estimate
+            $purchaseRequest->items()->update(['status' => 'pending_estimate']);
+
+            \DB::commit();
+
+            // Notify Procurement
+            $procurements = User::role(['procurement', 'superadmin'])->get();
+            $filtered = $procurements->reject(fn($u) => $u->id == auth()->id());
+            if ($filtered->isNotEmpty()) {
+                Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
+                Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+            }
+
+            return redirect()->route('purchase-requests.show', $purchaseRequest)
+                ->with('success', 'Purchase Request berhasil diajukan.');
+
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR submit draft failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal mengajukan PR: ' . $e->getMessage());
+        }
     }
 
     public function approvalQueue(Request $request)
@@ -1679,26 +1803,33 @@ class PurchaseRequestController extends Controller
                 $grouped[$item->purpose] = [
                     'amount' => 0,
                     'qty' => 0,
+                    'items_detail' => []
                 ];
             }
             $grouped[$item->purpose]['amount'] += $amt;
             $grouped[$item->purpose]['qty'] += (float) $item->quantity;
+            $grouped[$item->purpose]['items_detail'][] = ($item->item_name ?: 'Item') . ' (x' . (int)$item->quantity . ')';
         }
 
         foreach ($grouped as $purpose => $data) {
             try {
+                $resolved = $this->getResponsibleDepartmentForPurpose($purpose, $pr->department_id, $pr->department?->name);
+
+                $itemsSummary = implode(', ', $data['items_detail']);
+                $description = "Realisasi PR {$pr->pr_number} ({$itemsSummary}) - Kategori {$purpose}";
+
                 $response = \Illuminate\Support\Facades\Http::withoutVerifying()
                     ->withHeaders($headers)
                     ->timeout(8)
                     ->post($recordUrl, [
-                        'department_id' => $pr->department_id,
-                        'department_name' => $pr->department?->name,
+                        'department_id' => $resolved['id'],
+                        'department_name' => $resolved['name'],
                         'category_name' => $purpose,
                         'amount' => $data['amount'],
                         'qty' => $data['qty'],
                         'date' => $pr->request_date->format('Y-m-d'),
                         'reference' => $pr->pr_number,
-                        'description' => "Realisasi PR {$pr->pr_number} - Kategori {$purpose}",
+                        'description' => $description,
                     ]);
 
                 if (!$response->successful()) {

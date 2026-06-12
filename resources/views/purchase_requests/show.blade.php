@@ -57,10 +57,19 @@
                         <div class="col-md-6 pr-header-right" style="text-align:right;">
                             <p><strong>Status:</strong> <span class="badge badge-info">{{ ucfirst($purchaseRequest->status) }}</span></p>
                             
-                            @if($purchaseRequest->isEditable() && auth()->id() == $purchaseRequest->user_id)
+                            @if($purchaseRequest->isEditable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
                                 <a href="{{ route('purchase-requests.edit', $purchaseRequest) }}" class="btn btn-warning btn-sm mt-2 mr-2">
                                     <i class="fas fa-edit"></i> Edit Request
                                 </a>
+                            @endif
+
+                            @if($purchaseRequest->status === 'draft' && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
+                                <form action="{{ route('purchase-requests.submit-draft', $purchaseRequest) }}" method="POST" class="d-inline mt-2 mr-2 form-confirm" data-message="Apakah Anda yakin ingin mengajukan Purchase Request ini?">
+                                    @csrf
+                                    <button type="submit" class="btn btn-success btn-sm">
+                                        <i class="fas fa-paper-plane"></i> Ajukan PR
+                                    </button>
+                                </form>
                             @endif
 
                             <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="openPreviewModal('{{ route('purchase-requests.preview', $purchaseRequest) }}', '{{ route('purchase-requests.export', $purchaseRequest) }}')">
@@ -73,6 +82,16 @@
                                     <i class="fas fa-paper-plane"></i> Kirim Ulang Email
                                 </button>
                             </form>
+
+                            @if($purchaseRequest->isDeletable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
+                                <form action="{{ route('purchase-requests.destroy', $purchaseRequest) }}" method="POST" class="d-inline mt-2 ml-2 form-confirm" data-message="Apakah Anda yakin ingin menghapus Purchase Request ini?">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-danger btn-sm">
+                                        <i class="fas fa-trash"></i> Hapus Request
+                                    </button>
+                                </form>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -398,12 +417,11 @@
                                             </button>
                                         @endif
 
-                                        <!-- Procurement Status Update -->
-                                        @if(($isProc || $isSuperadmin) && in_array($item->status, ['approved_gm', 'approved_proc', 'ordered', 'delivered', 'completed']))
+                                        @if(($isProc || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
                                             <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                 @csrf
                                                 <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
-                                                    <option value="approved_gm" {{ in_array($item->status, ['approved_gm', 'approved_proc']) ? 'selected' : '' }}>
+                                                    <option value="approved_proc" {{ in_array($item->status, ['approved_proc']) ? 'selected' : '' }}>
                                                         Ready to Process {{ $item->processed_at ? '(' . $item->processed_at->format('d/m H:i') . ')' : '' }}
                                                     </option>
                                                     <option value="ordered" {{ $item->status == 'ordered' ? 'selected' : '' }}>
