@@ -123,6 +123,48 @@
                     </div>
                 </form>
             </div>
+
+            {{-- Odoo Configuration Card --}}
+            <div class="card shadow-sm rounded-lg mt-4">
+                <div class="card-header border-bottom-0 pb-0 pt-4 px-4">
+                    <h3 class="card-title text-lg font-medium"><i class="fas fa-plug mr-2 text-primary"></i> Odoo ERP Integration</h3>
+                </div>
+                <form action="{{ route('settings.update-odoo-credentials') }}" method="POST">
+                    @csrf
+                    <div class="card-body px-4 pb-4">
+                        <div class="form-group">
+                            <label for="odoo_url">Odoo Instance URL</label>
+                            <input type="url" name="odoo_url" class="form-control" id="odoo_url" value="{{ old('odoo_url', $settings['odoo_url']) }}" placeholder="https://your-domain.odoo.com" required>
+                            <small class="text-muted">Domain utama Odoo ERP Anda (sertakan https://).</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="odoo_db">Odoo Database Name</label>
+                            <input type="text" name="odoo_db" class="form-control" id="odoo_db" value="{{ old('odoo_db', $settings['odoo_db']) }}" required>
+                            <small class="text-muted">Nama database Odoo (biasanya subdomain depan Odoo Online).</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="odoo_username">Odoo Email / Username</label>
+                            <input type="text" name="odoo_username" class="form-control" id="odoo_username" value="{{ old('odoo_username', $settings['odoo_username']) }}" required>
+                            <small class="text-muted">Email admin/pengguna dengan hak akses modul Purchase di Odoo.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="odoo_password">Odoo Password / API Key</label>
+                            <input type="password" name="odoo_password" class="form-control" id="odoo_password" value="{{ old('odoo_password', $settings['odoo_password']) }}" required>
+                            <small class="text-muted">Disarankan menggunakan <strong>API Key</strong> yang digenerate dari profil keamanan Odoo.</small>
+                        </div>
+
+                        <div id="odoo-api-result" class="mt-3" style="display:none;">
+                            <div id="odoo-api-result-inner" class="alert mb-0 py-2 px-3 text-sm"></div>
+                        </div>
+                    </div>
+                    <div class="card-footer d-flex justify-content-between">
+                        <button type="button" id="btn-test-odoo-api" class="btn btn-warning">
+                            <i class="fas fa-satellite-dish mr-1"></i> Test Koneksi Odoo
+                        </button>
+                        <button type="submit" class="btn btn-primary">Save Odoo Settings</button>
+                    </div>
+                </form>
+            </div>
         </div>
         
         <div class="col-md-4">
@@ -176,7 +218,79 @@
     @push('scripts')
     <script>
         $(document).ready(function () {
-            bsCustomFileInput.init();
+            if (typeof bsCustomFileInput !== 'undefined') {
+                bsCustomFileInput.init();
+            }
+
+            // Odoo API Connection Test
+            document.getElementById('btn-test-odoo-api').addEventListener('click', function () {
+                const btn = this;
+                const resultContainer = document.getElementById('odoo-api-result');
+                const resultInner = document.getElementById('odoo-api-result-inner');
+
+                const odooUrl = document.getElementById('odoo_url').value;
+                const odooDb = document.getElementById('odoo_db').value;
+                const odooUsername = document.getElementById('odoo_username').value;
+                const odooPassword = document.getElementById('odoo_password').value;
+
+                if (!odooUrl || !odooDb || !odooUsername || !odooPassword) {
+                    resultContainer.style.display = 'block';
+                    resultInner.className = 'alert alert-danger mb-0 py-2 px-3';
+                    resultInner.innerHTML = '<strong><i class="fas fa-exclamation-triangle"></i> Peringatan:</strong> Harap lengkapi semua field Odoo sebelum melakukan tes koneksi.';
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menghubungkan ke Odoo...';
+                resultContainer.style.display = 'none';
+
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+                    || document.querySelector('input[name="_token"]')?.value;
+
+                fetch('{{ route("settings.test-odoo-api") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        odoo_url: odooUrl,
+                        odoo_db: odooDb,
+                        odoo_username: odooUsername,
+                        odoo_password: odooPassword
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    resultContainer.style.display = 'block';
+                    const latencyInfo = data.latency_ms ? `<br><small>Latency: <strong>${data.latency_ms} ms</strong></small>` : '';
+                    if (data.success) {
+                        resultInner.className = 'alert alert-success mb-0 py-2 px-3';
+                        resultInner.innerHTML = `
+                            <strong><i class="fas fa-check-circle"></i> Berhasil Terhubung!</strong><br>
+                            <small>${data.message}</small>
+                            ${latencyInfo}
+                        `;
+                    } else {
+                        resultInner.className = 'alert alert-danger mb-0 py-2 px-3';
+                        resultInner.innerHTML = `
+                            <strong><i class="fas fa-times-circle"></i> Koneksi Gagal</strong><br>
+                            <small>${data.message}</small>
+                            ${latencyInfo}
+                        `;
+                    }
+                })
+                .catch(err => {
+                    resultContainer.style.display = 'block';
+                    resultInner.className = 'alert alert-danger mb-0 py-2 px-3';
+                    resultInner.innerHTML = '<strong><i class="fas fa-times-circle"></i> Error:</strong> ' + err.message;
+                })
+                .finally(() => {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-satellite-dish mr-1"></i> Test Koneksi Odoo';
+                });
+            });
 
             // Finance API Connection Test
             document.getElementById('btn-test-finance-api').addEventListener('click', function () {

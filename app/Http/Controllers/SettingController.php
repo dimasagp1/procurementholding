@@ -18,6 +18,10 @@ class SettingController extends Controller
             'signature_om' => Setting::get('signature_om'),
             'signature_gm' => Setting::get('signature_gm'),
             'signature_proc' => Setting::get('signature_proc'),
+            'odoo_url' => Setting::get('odoo_url', env('ODOO_URL')),
+            'odoo_db' => Setting::get('odoo_db', env('ODOO_DB')),
+            'odoo_username' => Setting::get('odoo_username', env('ODOO_USERNAME')),
+            'odoo_password' => Setting::get('odoo_password', env('ODOO_PASSWORD')),
         ];
         
         return view('settings.general', compact('settings'));
@@ -513,6 +517,126 @@ class SettingController extends Controller
                 'status' => 'error',
                 'message' => 'Gagal menghubungi API Finance: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    public function updateOdooCredentials(Request $request)
+    {
+        $request->validate([
+            'odoo_url' => 'required|url|max:255',
+            'odoo_db' => 'required|string|max:255',
+            'odoo_username' => 'required|string|max:255',
+            'odoo_password' => 'required|string|max:255',
+        ]);
+
+        Setting::set('odoo_url', $request->odoo_url);
+        Setting::set('odoo_db', $request->odoo_db);
+        Setting::set('odoo_username', $request->odoo_username);
+        Setting::set('odoo_password', $request->odoo_password);
+
+        return redirect()->back()->with('success', 'Kredensial Odoo berhasil diperbarui.');
+    }
+
+    public function testOdooApi(Request $request)
+    {
+        $url = $request->input('odoo_url') ?? Setting::get('odoo_url', env('ODOO_URL'));
+        $db = $request->input('odoo_db') ?? Setting::get('odoo_db', env('ODOO_DB'));
+        $username = $request->input('odoo_username') ?? Setting::get('odoo_username', env('ODOO_USERNAME'));
+        $password = $request->input('odoo_password') ?? Setting::get('odoo_password', env('ODOO_PASSWORD'));
+
+        if (!$url || !$db || !$username || !$password) {
+            return response()->json(['success' => false, 'message' => 'Konfigurasi Odoo belum lengkap.']);
+        }
+
+        $startTime = microtime(true);
+        try {
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->timeout(10)
+                ->post("{$url}/jsonrpc", [
+                    'jsonrpc' => '2.0',
+                    'method' => 'call',
+                    'params' => [
+                        'service' => 'common',
+                        'method' => 'login',
+                        'args' => [$db, $username, $password]
+                    ],
+                    'id' => rand(1, 1000)
+                ]);
+
+            $latencyMs = round((microtime(true) - $startTime) * 1000);
+
+            if ($response->successful()) {
+                $json = $response->json();
+                if (isset($json['result']) && $json['result'] !== false) {
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Koneksi Berhasil! Terotentikasi di Odoo dengan User ID: ' . $json['result'],
+                        'latency_ms' => $latencyMs
+                    ]);
+                }
+                
+                $errorMsg = $json['error']['message'] ?? 'Autentikasi gagal. Periksa kembali username/password/API Key.';
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Odoo API Error: ' . $errorMsg,
+                    'latency_ms' => $latencyMs
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal menghubungi server Odoo. HTTP Status: ' . $response->status(),
+                'latency_ms' => $latencyMs
+            ]);
+
+        } catch (\Exception $e) {
+            $latencyMs = round((microtime(true) - $startTime) * 1000);
+            return response()->json([
+                'success' => false,
+                'message' => 'Error koneksi Odoo: ' . $e->getMessage(),
+                'latency_ms' => $latencyMs
+            ]);
+        }
+    }
+
+    public function odooVendors(\App\Services\OdooService $odooService)
+    {
+        $vendors = [];
+        $errorMessage = null;
+
+        try {
+            $vendors = $odooService->getVendorsDetailed();
+        } catch (\Exception $e) {
+            $errorMessage = 'Gagal mengambil data dari Odoo: ' . $e->getMessage();
+        }
+
+        return view('settings.odoo_vendors', compact('vendors', 'errorMessage'));
+    }
+
+    public function storeOdooVendor(Request $request, \App\Services\OdooService $odooService)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:100',
+            'mobile' => 'nullable|string|max:100',
+            'street' => 'nullable|string|max:500',
+            'city' => 'nullable|string|max:255',
+            'vat' => 'nullable|string|max:100',
+            'website' => 'nullable|url|max:255',
+        ]);
+
+        try {
+            $partnerId = $odooService->createVendor($request->only([
+                'name', 'email', 'phone', 'mobile', 'street', 'city', 'vat', 'website'
+            ]));
+
+            if ($partnerId) {
+                return redirect()->back()->with('success', 'Vendor baru berhasil didaftarkan ke Odoo!');
+            }
+            return redirect()->back()->with('error', 'Gagal membuat vendor di Odoo.');
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
         }
     }
 }

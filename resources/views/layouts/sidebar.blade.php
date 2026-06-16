@@ -151,6 +151,7 @@
                     </a>
                 </li>
 
+
                 @if(Auth::user()->hasRole('superadmin'))
                 <li class="nav-header">SYSTEM</li>
                 <li class="nav-item {{ request()->routeIs('settings.*') || request()->routeIs('uoms.*') || request()->routeIs('master-items.*') || request()->routeIs('purposes.*') ? 'menu-open' : '' }}">

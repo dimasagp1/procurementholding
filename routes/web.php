@@ -65,6 +65,8 @@ Route::middleware('auth')->group(function () {
     Route::get('purchase-requests/{purchaseRequest}/preview', [PurchaseRequestController::class, 'preview'])->name('purchase-requests.preview');
     Route::get('purchase-requests/{purchaseRequest}/export', [PurchaseRequestController::class, 'export'])->name('purchase-requests.export');
     Route::post('purchase-requests/{item}/update-status', [PurchaseRequestController::class, 'updateItemStatus'])->name('purchase-requests.update-item-status');
+    Route::post('purchase-requests/{item}/sync-to-odoo', [PurchaseRequestController::class, 'syncItemToOdoo'])->name('purchase-requests.sync-to-odoo');
+    Route::get('odoo/vendors', [PurchaseRequestController::class, 'getOdooVendors'])->name('api.odoo.vendors');
     Route::put('purchase-requests/{item}/delivery-plans', [PurchaseRequestController::class, 'updateDeliveryPlans'])->name('purchase-requests.update-delivery-plans');
     Route::post('purchase-requests/{item}/deliveries', [PurchaseRequestController::class, 'storeDelivery'])->name('purchase-requests.store-delivery');
     Route::put('purchase-requests/deliveries/{delivery}', [PurchaseRequestController::class, 'updateDelivery'])->name('purchase-requests.update-delivery');
@@ -82,12 +84,20 @@ Route::middleware('auth')->group(function () {
     Route::get('/settings/finance-budget-detail', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetDetail'])->name('settings.finance-budget-detail');
     Route::post('/settings/finance-budget-sync-departments', [\App\Http\Controllers\SettingController::class, 'syncDepartments'])->name('settings.finance-budget-sync-departments');
 
+    // Odoo Vendors
+    Route::middleware('role:superadmin|procurement')->group(function () {
+        Route::get('/settings/odoo-vendors', [\App\Http\Controllers\SettingController::class, 'odooVendors'])->name('settings.odoo-vendors');
+        Route::post('/settings/odoo-vendors', [\App\Http\Controllers\SettingController::class, 'storeOdooVendor'])->name('settings.odoo-vendors.store');
+    });
+
     // Superadmin Settings
     Route::middleware('role:superadmin')->group(function () {
         Route::get('/settings/general', [\App\Http\Controllers\SettingController::class, 'general'])->name('settings.general');
         Route::post('/settings/general', [\App\Http\Controllers\SettingController::class, 'updateGeneral'])->name('settings.update-general');
         Route::post('/settings/finance-credentials', [\App\Http\Controllers\SettingController::class, 'updateFinanceCredentials'])->name('settings.update-finance-credentials');
         Route::post('/settings/test-finance-api', [\App\Http\Controllers\SettingController::class, 'testFinanceApi'])->name('settings.test-finance-api');
+        Route::post('/settings/odoo-credentials', [\App\Http\Controllers\SettingController::class, 'updateOdooCredentials'])->name('settings.update-odoo-credentials');
+        Route::post('/settings/test-odoo-api', [\App\Http\Controllers\SettingController::class, 'testOdooApi'])->name('settings.test-odoo-api');
         Route::resource('uoms', \App\Http\Controllers\UomController::class);
         Route::resource('purposes', \App\Http\Controllers\PurposeController::class);
         Route::post('master-items/import', [\App\Http\Controllers\MasterItemController::class, 'import'])->name('master-items.import');

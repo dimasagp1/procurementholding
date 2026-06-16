@@ -11,6 +11,7 @@ use App\Models\Purpose;
 use App\Models\Setting;
 use App\Models\PrItemDelivery;
 use Illuminate\Http\Request;
+use App\Services\OdooService;
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -1113,7 +1114,7 @@ class PurchaseRequestController extends Controller
         return Excel::download(new PurchaseRequestExport, 'purchase-requests.xlsx');
     }
 
-    public function updateItemStatus(Request $request, PrItem $item)
+    public function updateItemStatus(Request $request, PrItem $item, OdooService $odooService)
     {
         $this->authorize('edit pr', $item->purchaseRequest);
 
@@ -1124,7 +1125,7 @@ class PurchaseRequestController extends Controller
         $updateData = ['status' => $request->status];
         if ($request->status === 'ordered') {
             $request->validate([
-                'po_number' => 'required|string|max:255',
+                'po_number' => 'nullable|string|max:255',
                 'actual_price' => 'required|numeric|min:0',
                 'planned_dates' => 'required|array|min:1',
                 'planned_dates.*' => 'required|date',
@@ -1133,7 +1134,8 @@ class PurchaseRequestController extends Controller
                 'planned_notes' => 'nullable|array',
                 'planned_notes.*' => 'nullable|string',
                 'planned_attachments' => 'nullable|array',
-                'planned_attachments.*' => 'nullable|file|max:5120'
+                'planned_attachments.*' => 'nullable|file|max:5120',
+                'vendor_name' => 'nullable|string|max:255'
             ]);
 
             $totalPlanned = array_sum($request->planned_quantities);
@@ -1141,11 +1143,30 @@ class PurchaseRequestController extends Controller
                 return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
             }
 
-            $updateData['po_number'] = $request->po_number;
+            // Kirim data ke Odoo dan buat PO otomatis
+            $purchaseRequest = $item->purchaseRequest;
+            
+            // Set temporary actual_price agar service menggunakan harga terbaru
+            $item->actual_price = $request->actual_price;
+            
+            $odooPo = $odooService->createPurchaseOrder(
+                $purchaseRequest, 
+                [$item], 
+                $request->vendor_name ?? 'Default Vendor'
+            );
+
+            if ($odooPo && isset($odooPo['name'])) {
+                $poNumber = $odooPo['name']; // Menggunakan nomor PO dari Odoo
+            } else {
+                $poNumber = $request->po_number ?: 'PO-PENDING'; // Fallback manual
+                \Log::warning("Gagal membuat PO di Odoo API, menggunakan fallback nomor PO manual.");
+            }
+
+            $updateData['po_number'] = $poNumber;
             $updateData['actual_price'] = $request->actual_price;
             $updateData['actual_total_price'] = $item->quantity * $request->actual_price;
             $updateData['ordered_at'] = now();
-            $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$request->po_number}.";
+            $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$poNumber}.";
         } elseif ($request->status === 'approved_proc') {
             $updateData['processed_at'] = now();
             $msg = "Item '{$item->item_name}' telah disetujui (Approved).";
@@ -1194,6 +1215,54 @@ class PurchaseRequestController extends Controller
         $this->syncPrExpensesWithFinance($item->purchaseRequest);
 
         return redirect()->back()->with('success', 'Item status updated successfully.');
+    }
+
+    public function syncItemToOdoo(Request $request, PrItem $item, OdooService $odooService)
+    {
+        $this->authorize('edit pr', $item->purchaseRequest);
+
+        $request->validate([
+            'vendor_name' => 'required|string|max:255'
+        ]);
+
+        $purchaseRequest = $item->purchaseRequest;
+
+        // Kirim data ke Odoo dan buat PO otomatis
+        $odooPo = $odooService->createPurchaseOrder(
+            $purchaseRequest, 
+            [$item], 
+            $request->vendor_name
+        );
+
+        if ($odooPo && isset($odooPo['name'])) {
+            $item->update([
+                'po_number' => $odooPo['name']
+            ]);
+
+            // Sync expenses to Finance Application when item is updated
+            $this->syncPrExpensesWithFinance($purchaseRequest);
+
+            return redirect()->back()->with('success', 'Item berhasil dikirim ke Odoo! PO Baru: ' . $odooPo['name']);
+        }
+
+        return redirect()->back()->with('error', 'Gagal mengirim ke Odoo. Silakan periksa kembali konfigurasi Odoo Anda atau log server.');
+    }
+
+    public function getOdooVendors(OdooService $odooService)
+    {
+        try {
+            $vendors = $odooService->getVendors();
+            return response()->json([
+                'success' => true,
+                'data' => $vendors
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to fetch vendors from Odoo: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Gagal mengambil data vendor dari Odoo: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     public function updateDeliveryPlans(Request $request, PrItem $item)

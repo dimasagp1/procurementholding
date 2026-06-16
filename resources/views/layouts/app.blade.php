@@ -1102,6 +1102,11 @@
             <a href="{{ route('settings.finance-budget') }}" class="drawer-sub-link {{ request()->routeIs('settings.finance-budget') ? 'active' : '' }}">
                 <i class="fas fa-coins text-success"></i> Finance Budget
             </a>
+            @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+            <a href="{{ route('settings.odoo-vendors') }}" class="drawer-sub-link {{ request()->routeIs('settings.odoo-vendors') ? 'active' : '' }}">
+                <i class="fas fa-address-book text-warning"></i> Odoo Vendors
+            </a>
+            @endif
             @endif
         </div>
 
@@ -1215,6 +1220,9 @@
                                     <div class="dropdown-divider"></div>
                                 @endif
                                 <li><a href="{{ route('settings.finance-budget') }}" class="dropdown-item"><i class="fas fa-coins mr-2 text-success"></i> Finance Budget</a></li>
+                                @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+                                    <li><a href="{{ route('settings.odoo-vendors') }}" class="dropdown-item"><i class="fas fa-address-book mr-2 text-warning"></i> Odoo Vendors</a></li>
+                                @endif
                             </ul>
                         </li>
                     @endif

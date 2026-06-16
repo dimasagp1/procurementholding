@@ -457,8 +457,13 @@
                                         @endif
 
                                         @if($item->po_number)
-                                            <div class="mt-2 text-info text-xs font-weight-bold">
-                                                PO: {{ $item->po_number }}
+                                            <div class="mt-2 text-info text-xs font-weight-bold d-flex align-items-center justify-content-between flex-wrap">
+                                                <span>PO: {{ $item->po_number }}</span>
+                                                @if(($isProc || $isSuperadmin) && in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                    <button type="button" class="btn btn-outline-warning btn-xs ml-1" data-toggle="modal" data-target="#syncOdooModal-{{ $item->id }}" title="Kirim/Sync ulang ke Odoo">
+                                                        <i class="fas fa-sync-alt"></i> Kirim ke Odoo
+                                                    </button>
+                                                @endif
                                             </div>
                                         @endif
                                         @if($item->deliveryPlans->isNotEmpty())
@@ -643,8 +648,12 @@
                                                     </div>
 
                                                     <div class="form-group">
-                                                        <label class="text-gray-300">NO. PO *</label>
-                                                        <input type="text" name="po_number" class="form-control" required value="{{ old('po_number', $item->po_number) }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                        <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis dari Odoo)</label>
+                                                        <input type="text" name="po_number" class="form-control" value="{{ old('po_number', $item->po_number) }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="text-gray-300">Nama Vendor</label>
+                                                        <input type="text" name="vendor_name" class="form-control" placeholder="Default Vendor" value="{{ old('vendor_name') }}" list="odoo-vendors-list" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Harga Satuan Aktual *</label>
@@ -931,6 +940,37 @@
                                     </div>
                                 </div>
                                 @endforeach
+
+                                <!-- Sync Odoo Modal -->
+                                <div class="modal fade" id="syncOdooModal-{{ $item->id }}" tabindex="-1">
+                                    <div class="modal-dialog">
+                                        <form action="{{ route('purchase-requests.sync-to-odoo', $item) }}" method="POST">
+                                            @csrf
+                                            <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                                                <div class="modal-header border-bottom-0">
+                                                    <h5 class="modal-title"><i class="fas fa-sync-alt mr-2 text-warning"></i>Kirim ke Odoo: {{ $item->item_name }}</h5>
+                                                    <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                                                </div>
+                                                <div class="modal-body text-left">
+                                                    <p class="text-sm text-gray-300">
+                                                        Kirim data pemesanan item ini ke Odoo ERP Anda. Ini akan membuat Purchase Order baru di Odoo.
+                                                    </p>
+                                                    <div class="form-group mt-3">
+                                                        <label class="text-gray-300 text-sm">Nama Vendor *</label>
+                                                        <input type="text" name="vendor_name" class="form-control" required placeholder="Masukkan Nama Vendor" list="odoo-vendors-list" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                        <small class="text-muted text-xs">Jika vendor belum ada di Odoo, sistem akan otomatis membuatnya.</small>
+                                                    </div>
+                                                </div>
+                                                <div class="modal-footer border-top-0 pt-0">
+                                                    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Batal</button>
+                                                    <button type="submit" class="btn btn-warning btn-sm">
+                                                        <i class="fas fa-paper-plane mr-1"></i> Kirim Sekarang
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </form>
+                                    </div>
+                                </div>
                                     @endforeach
 
 <style>
@@ -1060,6 +1100,8 @@
             </div>
         </div>
     </div>
+
+    <datalist id="odoo-vendors-list"></datalist>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -1295,7 +1337,7 @@
                 return 'Rp ' + parseFloat(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
             }
 
-            $('[id^="approveModal-"], [id^="rejectModal-"], [id^="noteModal-"], [id^="deliveryModal-"], [id^="historyModal-"], [id^="editDeliveryModal-"], [id^="orderModal-"], [id^="planModal-"], #attachmentPreviewModal, #prPreviewModal').each(function() {
+            $('[id^="approveModal-"], [id^="rejectModal-"], [id^="noteModal-"], [id^="deliveryModal-"], [id^="historyModal-"], [id^="editDeliveryModal-"], [id^="orderModal-"], [id^="planModal-"], [id^="syncOdooModal-"], #attachmentPreviewModal, #prPreviewModal').each(function() {
                 if (this.parentNode !== document.body) {
                     document.body.appendChild(this);
                 }
@@ -1492,6 +1534,23 @@
                     console.error('Error fetching budget status in modal:', error);
                 });
             }
+
+            // Fetch Odoo vendors asynchronously
+            fetch('{{ route("api.odoo.vendors") }}')
+                .then(res => res.json())
+                .then(response => {
+                    if (response.success && response.data) {
+                        const datalist = document.getElementById('odoo-vendors-list');
+                        if (datalist) {
+                            let html = '';
+                            response.data.forEach(vendor => {
+                                html += `<option value="${vendor.name}">`;
+                            });
+                            datalist.innerHTML = html;
+                        }
+                    }
+                })
+                .catch(err => console.error('Failed to fetch Odoo vendors:', err));
         });
     </script>
 
