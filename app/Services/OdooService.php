@@ -187,7 +187,7 @@ class OdooService
                 'product_qty' => (float) $item->quantity,
                 'price_unit' => (float) ($item->actual_price ?: $item->estimated_price),
                 'date_planned' => $datePlanned,
-                'uom_id' => $uomId,
+                'product_uom' => $uomId,
             ]];
         }
 
