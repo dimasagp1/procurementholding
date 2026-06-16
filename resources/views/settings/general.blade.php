@@ -149,7 +149,14 @@
                         </div>
                         <div class="form-group">
                             <label for="odoo_password">Odoo Password / API Key</label>
-                            <input type="password" name="odoo_password" class="form-control" id="odoo_password" value="{{ old('odoo_password', $settings['odoo_password']) }}" required>
+                            <div class="input-group">
+                                <input type="password" name="odoo_password" class="form-control" id="odoo_password" value="{{ old('odoo_password', $settings['odoo_password']) }}" required style="border-right: none;">
+                                <div class="input-group-append">
+                                    <span class="input-group-text" id="toggle-odoo-password" style="cursor: pointer; background-color: transparent; border-left: none; color: #a0aec0;">
+                                        <i class="fas fa-eye" id="toggle-odoo-password-icon"></i>
+                                    </span>
+                                </div>
+                            </div>
                             <small class="text-muted">Disarankan menggunakan <strong>API Key</strong> yang digenerate dari profil keamanan Odoo.</small>
                         </div>
 
@@ -221,6 +228,19 @@
             if (typeof bsCustomFileInput !== 'undefined') {
                 bsCustomFileInput.init();
             }
+
+            // Toggle Password Visibility
+            $('#toggle-odoo-password').on('click', function () {
+                const passwordInput = $('#odoo_password');
+                const icon = $('#toggle-odoo-password-icon');
+                if (passwordInput.attr('type') === 'password') {
+                    passwordInput.attr('type', 'text');
+                    icon.removeClass('fa-eye').addClass('fa-eye-slash');
+                } else {
+                    passwordInput.attr('type', 'password');
+                    icon.removeClass('fa-eye-slash').addClass('fa-eye');
+                }
+            });
 
             // Odoo API Connection Test
             document.getElementById('btn-test-odoo-api').addEventListener('click', function () {
