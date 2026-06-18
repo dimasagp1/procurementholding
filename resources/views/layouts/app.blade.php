@@ -1205,17 +1205,9 @@
                         </li>
                     @endcan
 
-                    @can('view reports')
-                        <li class="nav-item">
-                            <a href="{{ route('reports.index') }}" class="nav-link {{ request()->routeIs('reports.*') ? 'active' : '' }}"><i class="fas fa-chart-line mr-1"></i> Reports</a>
-                        </li>
-                    @endcan
-
-                    {{-- Staging Pengeluaran Pagu --}}
-                    <li class="nav-item">
-                        <a href="{{ route('staging-pagu.index') }}" class="nav-link {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
-                            <i class="fas fa-boxes mr-1 text-warning"></i>
-                            Staging Pagu
+                    <li class="nav-item dropdown">
+                        <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                            <i class="fas fa-database mr-1"></i> Data
                             @php
                                 try {
                                     $navPendingCount = \Illuminate\Support\Facades\DB::connection('fat_db')
@@ -1226,6 +1218,20 @@
                                 <span class="badge badge-warning ml-1">{{ $navPendingCount }}</span>
                             @endif
                         </a>
+                        <ul aria-labelledby="dropdownData" class="dropdown-menu border-0 shadow">
+                            @can('view reports')
+                                <li>
+                                    <a href="{{ route('reports.index') }}" class="dropdown-item {{ request()->routeIs('reports.*') ? 'active' : '' }}">
+                                        <i class="fas fa-chart-line mr-2 text-info"></i> Reports
+                                    </a>
+                                </li>
+                            @endcan
+                            <li>
+                                    <a href="{{ route('staging-pagu.index') }}" class="dropdown-item {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                                        <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
+                                    </a>
+                            </li>
+                        </ul>
                     </li>
 
                     @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
