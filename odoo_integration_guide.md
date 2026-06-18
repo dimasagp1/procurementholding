@@ -1,3 +1,5 @@
+3a62685613e99b739b47c5a321ca8c41f4923b6b
+
 # Panduan Integrasi Purchase Order (PO) Laravel ke Odoo API
 
 Panduan ini menjelaskan langkah-langkah untuk mengirim data Purchase Order (PO) dari aplikasi Procurement Laravel ke ERP Odoo menggunakan **JSON-RPC API** secara modular dan portable.

@@ -62,6 +62,7 @@ Route::middleware('auth')->group(function () {
     Route::post('purchase-requests/{item}/reject', [PurchaseRequestController::class, 'rejectItem'])->name('purchase-requests.reject-item');
     Route::post('purchase-requests/{item}/send-note', [PurchaseRequestController::class, 'sendValidationNote'])->name('purchase-requests.send-note');
     Route::post('purchase-requests/{item}/revise', [PurchaseRequestController::class, 'reviseItem'])->name('purchase-requests.revise-item');
+    Route::put('purchase-requests/items/{item}/quantity', [PurchaseRequestController::class, 'updateItemQuantity'])->name('purchase-requests.update-item-quantity');
     Route::get('purchase-requests/{purchaseRequest}/preview', [PurchaseRequestController::class, 'preview'])->name('purchase-requests.preview');
     Route::get('purchase-requests/{purchaseRequest}/export', [PurchaseRequestController::class, 'export'])->name('purchase-requests.export');
     Route::post('purchase-requests/{item}/update-status', [PurchaseRequestController::class, 'updateItemStatus'])->name('purchase-requests.update-item-status');
@@ -75,6 +76,9 @@ Route::middleware('auth')->group(function () {
     // Reports
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
+
+    // Staging Pengeluaran Pagu (read from FAT DB)
+    Route::get('/staging-pagu', [\App\Http\Controllers\StagingPaguController::class, 'index'])->name('staging-pagu.index');
 
     // Finance Budget Management
     Route::get('/settings/finance-budget', [\App\Http\Controllers\SettingController::class, 'financeBudget'])->name('settings.finance-budget');

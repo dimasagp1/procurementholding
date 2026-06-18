@@ -85,13 +85,48 @@ class PurchaseRequestController extends Controller
     {
         $purposes = $this->getPurposesFromFinance();
         
-        $matched = collect($purposes)->first(function ($item) use ($purpose) {
-            return strcasecmp($item->name ?? '', $purpose) === 0;
-        });
+        $matched = null;
+        if (!empty($fallbackDeptName)) {
+            // Try exact match within requesting department first
+            $matched = collect($purposes)->first(function ($item) use ($purpose, $fallbackDeptName) {
+                return strcasecmp($item->name ?? '', $purpose) === 0
+                    && strcasecmp($item->department_name ?? '', $fallbackDeptName) === 0;
+            });
+
+            // Try loose/contained match within requesting department
+            if (!$matched) {
+                $matched = collect($purposes)->first(function ($item) use ($purpose, $fallbackDeptName) {
+                    if (strcasecmp($item->name ?? '', $purpose) !== 0) {
+                        return false;
+                    }
+                    $n1 = strtolower($item->department_name ?? '');
+                    $n2 = strtolower($fallbackDeptName);
+                    return str_contains($n1, $n2) || str_contains($n2, $n1)
+                        || (str_contains($n1, 'human') && str_contains($n2, 'human'))
+                        || (str_contains($n1, 'finance') && str_contains($n2, 'finance'));
+                });
+            }
+        }
+
+        // If no match in the requesting department, find first matching category globally
+        if (!$matched) {
+            $matched = collect($purposes)->first(function ($item) use ($purpose) {
+                return strcasecmp($item->name ?? '', $purpose) === 0;
+            });
+        }
 
         if ($matched && isset($matched->department_name) && !empty($matched->department_name)) {
             $deptName = $matched->department_name;
             $localDept = Department::where('name', $deptName)->first();
+            if (!$localDept) {
+                $localDept = Department::all()->first(function($d) use ($deptName) {
+                    $n1 = strtolower($d->name);
+                    $n2 = strtolower($deptName);
+                    return str_contains($n1, $n2) || str_contains($n2, $n1)
+                        || (str_contains($n1, 'human') && str_contains($n2, 'human'))
+                        || (str_contains($n1, 'finance') && str_contains($n2, 'finance'));
+                });
+            }
             return [
                 'id' => $localDept ? $localDept->id : null,
                 'name' => $deptName
@@ -889,6 +924,10 @@ class PurchaseRequestController extends Controller
         if ($item->purchaseRequest->user_id == $user->id) {
             $canSend = true;
             $approvalType = 'requester';
+        } elseif (($role === 'procurement' || $role === 'superadmin') && $item->status === 'pending_estimate') {
+            $canSend = true;
+            $approvalType = 'procurement';
+            $role = 'procurement';
         } elseif ($role === 'superadmin' && $item->status === 'pending') {
             $canSend = true;
             $approvalType = $item->purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
@@ -1143,23 +1182,29 @@ class PurchaseRequestController extends Controller
                 return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
             }
 
-            // Kirim data ke Odoo dan buat PO otomatis
+            // Kirim data ke Odoo dan buat PO otomatis jika bertipe Operational
             $purchaseRequest = $item->purchaseRequest;
-            
-            // Set temporary actual_price agar service menggunakan harga terbaru
-            $item->actual_price = $request->actual_price;
-            
-            $odooPo = $odooService->createPurchaseOrder(
-                $purchaseRequest, 
-                [$item], 
-                $request->vendor_name ?? 'Default Vendor'
-            );
+            $poNumber = null;
 
-            if ($odooPo && isset($odooPo['name'])) {
-                $poNumber = $odooPo['name']; // Menggunakan nomor PO dari Odoo
+            if ($purchaseRequest->pr_type === 'operational') {
+                // Set temporary actual_price agar service menggunakan harga terbaru
+                $item->actual_price = $request->actual_price;
+                
+                $odooPo = $odooService->createPurchaseOrder(
+                    $purchaseRequest, 
+                    [$item], 
+                    $request->vendor_name ?? 'Default Vendor'
+                );
+
+                if ($odooPo && isset($odooPo['name'])) {
+                    $poNumber = $odooPo['name']; // Menggunakan nomor PO dari Odoo
+                } else {
+                    $poNumber = $request->po_number ?: 'PO-PENDING'; // Fallback manual
+                    \Log::warning("Gagal membuat PO di Odoo API, menggunakan fallback nomor PO manual.");
+                }
             } else {
-                $poNumber = $request->po_number ?: 'PO-PENDING'; // Fallback manual
-                \Log::warning("Gagal membuat PO di Odoo API, menggunakan fallback nomor PO manual.");
+                // Non-operational: langsung gunakan nomor PO manual atau generate fallback
+                $poNumber = $request->po_number ?: 'PO-NONOP-' . date('Ymd') . '-' . $item->id;
             }
 
             $updateData['po_number'] = $poNumber;
@@ -1217,15 +1262,39 @@ class PurchaseRequestController extends Controller
         return redirect()->back()->with('success', 'Item status updated successfully.');
     }
 
-    public function syncItemToOdoo(Request $request, PrItem $item, OdooService $odooService)
+    public function updateItemQuantity(Request $request, PrItem $item)
     {
         $this->authorize('edit pr', $item->purchaseRequest);
 
         $request->validate([
-            'vendor_name' => 'required|string|max:255'
+            'quantity' => 'required|numeric|min:0.01'
         ]);
 
+        $item->update([
+            'quantity' => $request->quantity,
+            'total_price' => $request->quantity * ($item->estimated_price ?: 0)
+        ]);
+
+        // Perbarui total_amount dari PR induk
+        $pr = $item->purchaseRequest;
+        $totalAmount = $pr->items()->sum('total_price');
+        $pr->update(['total_amount' => $totalAmount]);
+
+        return redirect()->back()->with('success', 'Kuantitas item berhasil diperbarui.');
+    }
+
+    public function syncItemToOdoo(Request $request, PrItem $item, OdooService $odooService)
+    {
+        $this->authorize('edit pr', $item->purchaseRequest);
         $purchaseRequest = $item->purchaseRequest;
+
+        if ($purchaseRequest->pr_type !== 'operational') {
+            return redirect()->back()->with('error', 'Hanya Purchase Request bertipe Operational yang dapat disinkronkan ke Odoo.');
+        }
+
+        $request->validate([
+            'vendor_name' => 'required|string|max:255'
+        ]);
 
         // Kirim data ke Odoo dan buat PO otomatis
         $odooPo = $odooService->createPurchaseOrder(

@@ -190,6 +190,12 @@
                                     <td data-label="Keterangan">{{ $item->description ?? '-' }}</td>
                                     <td data-label="Qty/UOM">
                                         {{ $item->quantity }} {{ $item->uom }}
+                                        @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                                            <br>
+                                            <button type="button" class="btn btn-outline-warning btn-xs mt-1" data-toggle="modal" data-target="#editQtyModal-{{ $item->id }}">
+                                                <i class="fas fa-edit"></i> Edit Qty
+                                            </button>
+                                        @endif
                                         @php
                                             $receivedQty = $item->received_quantity;
                                             $remainingQty = $item->quantity - $receivedQty;
@@ -397,6 +403,7 @@
                                                 if ($isFat && $item->status == 'pending' && $purchaseRequest->pr_type === 'non_operational') { $canApprove = true; $canSendNote = true; }
                                                 if ($isGm && $item->status == 'approved_om') { $canApprove = true; $canSendNote = true; }
                                                 if ($isProc && $item->status == 'approved_gm') { $canApprove = true; $canSendNote = true; }
+                                                if (($isProc || $isSuperadmin) && $item->status == 'pending_estimate') { $canSendNote = true; }
                                                 if ($isSuperadmin && in_array($item->status, ['pending', 'approved_om', 'approved_gm'])) { $canApprove = true; $canSendNote = true; }
                                                 if ($purchaseRequest->user_id == Auth::id()) { $canSendNote = true; }
                                              }
@@ -459,7 +466,7 @@
                                         @if($item->po_number)
                                             <div class="mt-2 text-info text-xs font-weight-bold d-flex align-items-center justify-content-between flex-wrap">
                                                 <span>PO: {{ $item->po_number }}</span>
-                                                @if(($isProc || $isSuperadmin) && in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                @if(($isProc || $isSuperadmin) && $purchaseRequest->pr_type === 'operational' && in_array($item->status, ['ordered', 'delivered', 'completed']))
                                                     <button type="button" class="btn btn-outline-warning btn-xs ml-1" data-toggle="modal" data-target="#syncOdooModal-{{ $item->id }}" title="Kirim/Sync ulang ke Odoo">
                                                         <i class="fas fa-sync-alt"></i> Kirim ke Odoo
                                                     </button>
@@ -555,6 +562,34 @@
             $remainingQty = $item->quantity - $item->received_quantity;
         @endphp
 
+        @if($item->status === 'pending_estimate' && ($isProc || $isSuperadmin))
+        <!-- Edit Qty Modal -->
+        <div class="modal fade" id="editQtyModal-{{ $item->id }}" tabindex="-1">
+            <div class="modal-dialog">
+                <form action="{{ route('purchase-requests.update-item-quantity', $item) }}" method="POST">
+                    @csrf
+                    @method('PUT')
+                    <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                        <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                            <h5 class="modal-title">Edit Quantity: {{ $item->item_name }}</h5>
+                            <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                        </div>
+                        <div class="modal-body text-left">
+                            <div class="form-group">
+                                <label class="text-gray-300">Quantity ({{ $item->uom }}) *</label>
+                                <input type="number" step="0.01" name="quantity" class="form-control" required value="{{ $item->quantity }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                            </div>
+                        </div>
+                        <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                            <button type="submit" class="btn btn-warning">Simpan Perubahan</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        @endif
+
         <!-- Reschedule Modal -->
         <div class="modal fade" id="rescheduleModal-{{ $item->id }}" tabindex="-1">
             <div class="modal-dialog modal-lg">
@@ -648,13 +683,19 @@
                                                     </div>
 
                                                     <div class="form-group">
-                                                        <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis dari Odoo)</label>
+                                                        @if($purchaseRequest->pr_type === 'operational')
+                                                            <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis dari Odoo)</label>
+                                                        @else
+                                                            <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis manual)</label>
+                                                        @endif
                                                         <input type="text" name="po_number" class="form-control" value="{{ old('po_number', $item->po_number) }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
+                                                    @if($purchaseRequest->pr_type === 'operational')
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Nama Vendor</label>
                                                         <input type="text" name="vendor_name" class="form-control" placeholder="Default Vendor" value="{{ old('vendor_name') }}" list="odoo-vendors-list" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
+                                                    @endif
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Harga Satuan Aktual *</label>
                                                         <input type="number" step="0.01" name="actual_price" class="form-control" required 

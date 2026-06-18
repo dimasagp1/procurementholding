@@ -151,6 +151,28 @@
                     </a>
                 </li>
 
+                <li class="nav-item">
+                    <a href="{{ route('staging-pagu.index') }}" class="nav-link {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                        <i class="nav-icon fas fa-boxes text-warning"></i>
+                        <p>
+                            Staging Pengeluaran
+                            @php
+                                try {
+                                    $pendingStaging = \Illuminate\Support\Facades\DB::connection('fat_db')
+                                        ->table('expense_stagings')
+                                        ->where('status', 'pending')
+                                        ->count();
+                                } catch (\Exception $e) {
+                                    $pendingStaging = 0;
+                                }
+                            @endphp
+                            @if($pendingStaging > 0)
+                                <span class="badge badge-warning right">{{ $pendingStaging }}</span>
+                            @endif
+                        </p>
+                    </a>
+                </li>
+
 
                 @if(Auth::user()->hasRole('superadmin'))
                 <li class="nav-header">SYSTEM</li>
