@@ -76,7 +76,7 @@ class StagingPaguController extends Controller
 
         } catch (\Exception $e) {
             return view('staging.index', [
-                'stagings' => collect()->paginate(20),
+                'stagings' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, 20),
                 'summary' => null,
                 'departments' => collect(),
                 'error' => 'Tidak dapat terhubung ke database Finance: ' . $e->getMessage(),
