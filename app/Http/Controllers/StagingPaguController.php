@@ -11,66 +11,62 @@ class StagingPaguController extends Controller
     public function index(Request $request)
     {
         try {
-            $query = DB::connection('fat_db')
-                ->table('expense_stagings as es')
-                ->leftJoin('departments as d', 'es.department_id', '=', 'd.id')
-                ->leftJoin('budget_categories as bc', 'es.budget_category_id', '=', 'bc.id')
-                ->select(
-                    'es.id',
-                    'es.reference',
-                    'es.date',
-                    'es.description',
-                    'es.qty',
-                    'es.amount',
-                    'es.status',
-                    'es.checked_at',
-                    'es.created_at',
-                    'd.name as department_name',
-                    'bc.name as category_name',
-                    'bc.code as category_code'
-                );
+            $apiUrl = \App\Models\Setting::get('finance_api_url', env('FINANCE_API_URL'));
+            $apiKey = \App\Models\Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
-            // Filter pencarian
-            if ($request->filled('search')) {
-                $search = $request->input('search');
-                $query->where(function($q) use ($search) {
-                    $q->where('es.reference', 'like', "%{$search}%")
-                      ->orWhere('es.description', 'like', "%{$search}%");
-                });
+            if (!$apiUrl || !$apiKey) {
+                throw new \Exception('Konfigurasi API Finance belum lengkap di Settings.');
             }
 
-            // Filter department (berdasarkan nama, karena ID bisa berbeda)
-            if ($request->filled('department')) {
-                $query->where('d.name', 'like', '%' . $request->input('department') . '%');
+            // Ganti /check dengan /stagings untuk mengakses API data staging
+            $stagingsUrl = str_replace('/check', '/stagings', $apiUrl);
+
+            $response = \Illuminate\Support\Facades\Http::withoutVerifying()
+                ->withHeaders([
+                    'Accept'    => 'application/json',
+                    'X-API-KEY' => $apiKey,
+                ])
+                ->timeout(8)
+                ->get($stagingsUrl, [
+                    'search'     => $request->input('search'),
+                    'department' => $request->input('department'),
+                    'status'     => $request->input('status'),
+                    'page'       => $request->input('page', 1),
+                ]);
+
+            if (!$response->successful()) {
+                throw new \Exception('Gagal menghubungi API Finance (HTTP ' . $response->status() . ')');
             }
 
-            // Filter status
-            if ($request->filled('status')) {
-                $query->where('es.status', $request->input('status'));
+            $body = $response->json();
+            if (($body['status'] ?? 'error') !== 'success' || !isset($body['data'])) {
+                throw new \Exception($body['message'] ?? 'API merespons dengan format tidak valid.');
             }
 
-            // Default sort: pending dulu, lalu terbaru
-            $query->orderByRaw("FIELD(es.status, 'pending', 'bon', 'ignored') ASC")
-                  ->orderBy('es.date', 'desc');
+            $apiData = $body['data'];
+            $apiStagings = $apiData['stagings'];
 
-            $stagings = $query->paginate(20)->withQueryString();
+            // Ubah array item menjadi stdClass object agar sesuai dengan yang diharapkan oleh blade view
+            $items = array_map(function($item) {
+                return (object) $item;
+            }, $apiStagings['data'] ?? []);
 
-            // Hitung ringkasan
-            $summary = DB::connection('fat_db')
-                ->table('expense_stagings')
-                ->selectRaw("
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
-                    SUM(CASE WHEN status = 'bon' THEN 1 ELSE 0 END) as bon_count,
-                    SUM(CASE WHEN status = 'ignored' THEN 1 ELSE 0 END) as ignored_count,
-                    SUM(CASE WHEN status IN ('pending','bon') THEN amount ELSE 0 END) as total_amount
-                ")->first();
+            $stagings = new \Illuminate\Pagination\LengthAwarePaginator(
+                $items,
+                $apiStagings['total'] ?? 0,
+                $apiStagings['per_page'] ?? 20,
+                $apiStagings['current_page'] ?? 1,
+                [
+                    'path' => \Illuminate\Pagination\LengthAwarePaginator::resolveCurrentPath(),
+                ]
+            );
+            $stagings->withQueryString();
+
+            // Ringkasan (Summary)
+            $summary = isset($apiData['summary']) ? (object) $apiData['summary'] : null;
 
             // Daftar department untuk filter dropdown
-            $departments = DB::connection('fat_db')
-                ->table('departments')
-                ->orderBy('name')
-                ->pluck('name');
+            $departments = collect($apiData['departments'] ?? []);
 
             return view('staging.index', compact('stagings', 'summary', 'departments'));
 
@@ -79,7 +75,7 @@ class StagingPaguController extends Controller
                 'stagings' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, 20),
                 'summary' => null,
                 'departments' => collect(),
-                'error' => 'Tidak dapat terhubung ke database Finance: ' . $e->getMessage(),
+                'error' => 'Gagal memuat data dari API Finance: ' . $e->getMessage(),
             ]);
         }
     }
