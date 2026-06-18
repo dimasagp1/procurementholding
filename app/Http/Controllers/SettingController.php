@@ -497,9 +497,9 @@ class SettingController extends Controller
                 $code = !empty($dept['code']) ? $dept['code'] : strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $dept['name']), 0, 10));
                 
                 \App\Models\Department::updateOrCreate(
-                    ['name' => $dept['name']],
+                    ['code' => $code],
                     [
-                        'code' => $code,
+                        'name' => $dept['name'],
                         'manager' => $dept['head_name'] ?? ($dept['manager'] ?? null),
                         'description' => $dept['description'] ?? null,
                         'is_active' => $dept['is_active'] ?? true
