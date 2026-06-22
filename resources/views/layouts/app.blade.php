@@ -1205,6 +1205,7 @@
                         </li>
                     @endcan
 
+                    @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
                     <li class="nav-item dropdown">
                         <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
                             <i class="fas fa-database mr-1"></i> Data
@@ -1214,7 +1215,7 @@
                                         ->table('expense_stagings')->where('status', 'pending')->count();
                                 } catch (\Exception $e) { $navPendingCount = 0; }
                             @endphp
-                            @if($navPendingCount > 0)
+                            @if($navPendingCount > 0 && Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
                                 <span class="badge badge-warning ml-1">{{ $navPendingCount }}</span>
                             @endif
                         </a>
@@ -1226,13 +1227,16 @@
                                     </a>
                                 </li>
                             @endcan
-                            <li>
+                            @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                                <li>
                                     <a href="{{ route('staging-pagu.index') }}" class="dropdown-item {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
                                         <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
                                     </a>
-                            </li>
+                                </li>
+                            @endif
                         </ul>
                     </li>
+                    @endif
 
                     @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
                         <li class="nav-item dropdown">

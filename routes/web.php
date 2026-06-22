@@ -78,7 +78,9 @@ Route::middleware('auth')->group(function () {
     Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
 
     // Staging Pengeluaran Pagu (read from FAT DB)
-    Route::get('/staging-pagu', [\App\Http\Controllers\StagingPaguController::class, 'index'])->name('staging-pagu.index');
+    Route::get('/staging-pagu', [\App\Http\Controllers\StagingPaguController::class, 'index'])
+        ->middleware('role:superadmin|manager_fat|general_manager|operational_manager|procurement')
+        ->name('staging-pagu.index');
 
     // Finance Budget Management
     Route::get('/settings/finance-budget', [\App\Http\Controllers\SettingController::class, 'financeBudget'])->name('settings.finance-budget');

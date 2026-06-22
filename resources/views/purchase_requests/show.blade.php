@@ -99,8 +99,10 @@
 
             @php
                 $showBudgetDetails = $purchaseRequest->status !== 'draft' && (
-                    Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager'])
+                    Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']) ||
+                    Auth::id() === $purchaseRequest->user_id
                 );
+                $isManagerOrAdmin = Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']);
             @endphp
 
             @if($showBudgetDetails)
@@ -113,17 +115,19 @@
                             <thead>
                                 <tr>
                                     <th>Nama Kategori</th>
-                                    <th class="text-right">Pagu Bulan Ini</th>
-                                    <th class="text-right">Realisasi (Sebelum PR)</th>
-                                    <th class="text-right text-success">Estimasi PR Ini</th>
-                                    <th class="text-right text-warning">Aktual PR Ini</th>
+                                    @if($isManagerOrAdmin)
+                                        <th class="text-right">Pagu Bulan Ini</th>
+                                        <th class="text-right">Realisasi (Sebelum PR)</th>
+                                        <th class="text-right text-success">Estimasi PR Ini</th>
+                                        <th class="text-right text-warning">Aktual PR Ini</th>
+                                    @endif
                                     <th class="text-right">Sisa Pagu Setelah PR</th>
                                     <th class="text-center">Status</th>
                                 </tr>
                             </thead>
                             <tbody id="budget-details-tbody">
                                 <tr>
-                                    <td colspan="7" class="text-center py-3">
+                                    <td colspan="{{ $isManagerOrAdmin ? 7 : 3 }}" class="text-center py-3">
                                         <i class="fas fa-spinner fa-spin mr-1"></i> Memuat rincian anggaran...
                                     </td>
                                 </tr>
@@ -1147,6 +1151,7 @@
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             const requestDate = "{{ $purchaseRequest->request_date->format('Y-m-d') }}";
+            const isManagerOrAdmin = {{ $isManagerOrAdmin ? 'true' : 'false' }};
             const budgetDetailsCard = document.getElementById('budget-details-card');
 
             const allItems = [
@@ -1276,17 +1281,27 @@
                                 }
                             }
 
-                            html += `
-                                <tr>
-                                    <td><strong>${purpose}</strong></td>
-                                    <td class="text-right text-info font-weight-bold">${limitStr}</td>
-                                    <td class="text-right text-muted">${usageStr}</td>
-                                    <td class="text-right text-success font-weight-bold">${estPRStr}</td>
-                                    <td class="text-right text-white font-weight-bold">${actPRStr}</td>
-                                    <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
-                                    <td class="text-center">${statusBadge}</td>
-                                </tr>
-                            `;
+                            if (isManagerOrAdmin) {
+                                html += `
+                                    <tr>
+                                        <td><strong>${purpose}</strong></td>
+                                        <td class="text-right text-info font-weight-bold">${limitStr}</td>
+                                        <td class="text-right text-muted">${usageStr}</td>
+                                        <td class="text-right text-success font-weight-bold">${estPRStr}</td>
+                                        <td class="text-right text-white font-weight-bold">${actPRStr}</td>
+                                        <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
+                                        <td class="text-center">${statusBadge}</td>
+                                    </tr>
+                                `;
+                            } else {
+                                html += `
+                                    <tr>
+                                        <td><strong>${purpose}</strong></td>
+                                        <td class="text-right ${remaining < 0 ? 'text-danger font-weight-bold' : 'text-warning font-weight-bold'}">${remainingStr}</td>
+                                        <td class="text-center">${statusBadge}</td>
+                                    </tr>
+                                `;
+                            }
                         });
                         
                         budgetDetailsTbody.innerHTML = html;
@@ -1340,7 +1355,7 @@
                         budgetDetailsCard.style.display = 'block';
                         budgetDetailsTbody.innerHTML = `
                             <tr>
-                                <td colspan="7" class="text-center text-muted">
+                                <td colspan="${isManagerOrAdmin ? 7 : 3}" class="text-center text-muted">
                                     <i class="fas fa-info-circle mr-1"></i> ${data.message || 'Informasi pagu tidak dikonfigurasi untuk kategori ini.'}
                                 </td>
                             </tr>
@@ -1351,7 +1366,7 @@
                     budgetDetailsCard.style.display = 'block';
                     budgetDetailsTbody.innerHTML = `
                         <tr>
-                            <td colspan="7" class="text-center text-danger">
+                            <td colspan="${isManagerOrAdmin ? 7 : 3}" class="text-center text-danger">
                                 <i class="fas fa-exclamation-triangle mr-1"></i> Gagal memuat rincian anggaran.
                             </td>
                         </tr>

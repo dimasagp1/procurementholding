@@ -165,7 +165,7 @@
                                                               </optgroup>
                                                           @endforeach
                                                      </select>
-                                                     
+                                                     <div class="budget-feedback mt-1 font-weight-bold" id="budget-feedback-{{ $index }}" style="font-size: 0.75rem;"></div>
                                                  </div>
                                                 <div class="col-md-2 mb-3">
                                                      <label class="form-label">Quantity *</label>
@@ -251,6 +251,69 @@
             const container = document.getElementById('items-container');
             const addButton = document.getElementById('add-item');
 
+            function formatIDR(num) {
+                return 'Rp ' + parseFloat(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+            }
+
+            function fetchPurposeBudget(purpose, index) {
+                const feedbackDiv = document.getElementById(`budget-feedback-${index}`);
+                if (!feedbackDiv) return;
+                
+                if (!purpose) {
+                    feedbackDiv.innerHTML = '';
+                    return;
+                }
+                
+                feedbackDiv.innerHTML = '<span class="text-gray-400" style="font-size: 0.75rem;"><i class="fas fa-spinner fa-spin mr-1"></i> Memeriksa budget...</span>';
+                
+                const requestDateVal = document.getElementById('request_date').value;
+                const departmentIdVal = "{{ Auth::user()->department_id }}";
+                
+                fetch('/api/internal/check-budget', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        request_date: requestDateVal,
+                        department_id: departmentIdVal,
+                        purpose: purpose,
+                        requested_amount: 0
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.remaining_budget !== undefined && data.remaining_budget !== null) {
+                        const remaining = parseFloat(data.remaining_budget);
+                        const formatted = formatIDR(remaining);
+                        
+                        if (remaining >= 0) {
+                            feedbackDiv.innerHTML = `<span class="text-success" style="font-size: 0.75rem;"><i class="fas fa-check-circle mr-1"></i> Sisa Pagu: ${formatted}</span>`;
+                        } else {
+                            feedbackDiv.innerHTML = `<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-circle mr-1"></i> Over Budget (Sisa: ${formatted})</span>`;
+                        }
+                    } else {
+                        feedbackDiv.innerHTML = `<span class="text-warning" style="font-size: 0.75rem;"><i class="fas fa-info-circle mr-1"></i> Pagu tidak dikonfigurasi</span>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching purpose budget:', error);
+                    feedbackDiv.innerHTML = '<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-triangle mr-1"></i> Gagal memuat budget</span>';
+                });
+            }
+
+            document.getElementById('request_date').addEventListener('change', function() {
+                document.querySelectorAll('.item-row').forEach((row) => {
+                    const idx = row.id.split('-').pop();
+                    const selectEl = row.querySelector('.purpose-select');
+                    if (selectEl && selectEl.value) {
+                        fetchPurposeBudget(selectEl.value, idx);
+                    }
+                });
+            });
+
             function createItemRow(index) {
                 const html = `
                     <div class="card mb-3 item-row" id="item-row-${index}">
@@ -286,7 +349,7 @@
                                             </optgroup>
                                         @endforeach
                                     </select>
-                                    
+                                    <div class="budget-feedback mt-1 font-weight-bold" id="budget-feedback-${index}" style="font-size: 0.75rem;"></div>
                                 </div>
                                 <div class="col-md-2 mb-3">
                                     <label class="form-label">Quantity *</label>
@@ -435,7 +498,10 @@
                     new TomSelect(purposeSelect, {
                         create: false,
                         sortField: { field: "text", direction: "asc" },
-                        placeholder: "Select Purpose"
+                        placeholder: "Select Purpose",
+                        onChange: function(value) {
+                            fetchPurposeBudget(value, index);
+                        }
                     });
                 }
             }
@@ -444,6 +510,10 @@
             document.querySelectorAll('.item-row').forEach((row) => {
                 const idx = row.id.split('-').pop();
                 initTomSelects(row, idx);
+                const selectEl = row.querySelector('.purpose-select');
+                if (selectEl && selectEl.value) {
+                    fetchPurposeBudget(selectEl.value, idx);
+                }
             });
 
 
