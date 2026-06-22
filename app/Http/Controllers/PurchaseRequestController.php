@@ -909,6 +909,261 @@ class PurchaseRequestController extends Controller
         return redirect()->back()->with('success', 'Item rejected successfully.');
     }
 
+    public function approveAll(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        $request->validate([
+            'notes' => 'nullable|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $eligibleItems = $purchaseRequest->getEligibleItemsForUser($user, 'approve');
+
+        if ($eligibleItems->isEmpty()) {
+            return redirect()->back()->with('error', 'Tidak ada item yang dapat disetujui saat ini.');
+        }
+
+        \DB::beginTransaction();
+        try {
+            $isOm = $user->hasRole('operational_manager');
+            $isFat = $user->hasRole('manager_fat');
+            $isGm = $user->hasRole('general_manager');
+            $isProc = $user->hasRole('procurement');
+            $isSuperadmin = $user->hasRole('superadmin');
+
+            foreach ($eligibleItems as $item) {
+                $isLevel1Approver = ($purchaseRequest->pr_type === 'non_operational') ? $isFat : $isOm;
+
+                if (($isLevel1Approver || $isSuperadmin) && $item->status === 'pending') {
+                    $item->update(['status' => 'approved_om']);
+                    $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+                    $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+
+                    Approval::create([
+                        'purchase_request_id' => $item->purchase_request_id,
+                        'pr_item_id' => $item->id,
+                        'approver_id' => $user->id,
+                        'approver_role' => $approverRole,
+                        'approval_type' => $approvalType,
+                        'status' => 'approved',
+                        'notes' => $request->notes,
+                        'approved_at' => now(),
+                    ]);
+
+                    // Send notification
+                    $recipients = $this->getSharedRecipients($purchaseRequest, $purchaseRequest->user);
+                    $managerTitle = $purchaseRequest->pr_type === 'non_operational' ? 'Manager FAT' : 'Operational Manager';
+                    $message = "Item '{$item->item_name}' telah disetujui secara massal oleh {$managerTitle}.";
+                    if ($request->filled('notes')) {
+                        $message .= " Catatan: {$request->notes}";
+                    }
+                    Notification::send($recipients, new PrStatusUpdatedNotification($purchaseRequest, $message));
+                    Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($purchaseRequest, $message)));
+
+                } elseif (($isGm || $isSuperadmin) && $item->status === 'approved_om') {
+                    $item->update(['status' => 'approved_gm']);
+
+                    Approval::create([
+                        'purchase_request_id' => $item->purchase_request_id,
+                        'pr_item_id' => $item->id,
+                        'approver_id' => $user->id,
+                        'approver_role' => 'general_manager',
+                        'approval_type' => 'gm',
+                        'status' => 'approved',
+                        'notes' => $request->notes,
+                        'approved_at' => now(),
+                    ]);
+
+                } elseif (($isProc || $isSuperadmin) && $item->status === 'approved_gm') {
+                    $item->update(['status' => 'approved_proc']);
+
+                    // Send notification
+                    $recipients = $this->getSharedRecipients($purchaseRequest, $purchaseRequest->user);
+                    $message = "Item '{$item->item_name}' telah disetujui secara massal oleh Procurement.";
+                    if ($request->filled('notes')) {
+                        $message .= " Catatan: {$request->notes}";
+                    }
+                    Notification::send($recipients, new PrStatusUpdatedNotification($purchaseRequest, $message));
+                    Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($purchaseRequest, $message)));
+
+                    Approval::create([
+                        'purchase_request_id' => $item->purchase_request_id,
+                        'pr_item_id' => $item->id,
+                        'approver_id' => $user->id,
+                        'approver_role' => 'procurement',
+                        'approval_type' => 'procurement',
+                        'status' => 'approved',
+                        'notes' => $request->notes,
+                        'approved_at' => now(),
+                    ]);
+                }
+            }
+
+            // Evaluate PR advancement
+            $this->checkAndAdvancePrStatus($purchaseRequest);
+
+            \DB::commit();
+            return redirect()->back()->with('success', count($eligibleItems) . ' item berhasil disetujui.');
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR approveAll failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal menyetujui semua item: ' . $e->getMessage());
+        }
+    }
+
+    public function rejectAll(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        $request->validate([
+            'reject_reason' => 'required|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $eligibleItems = $purchaseRequest->getEligibleItemsForUser($user, 'reject');
+
+        if ($eligibleItems->isEmpty()) {
+            return redirect()->back()->with('error', 'Tidak ada item yang dapat ditolak saat ini.');
+        }
+
+        \DB::beginTransaction();
+        try {
+            $isOm = $user->hasRole('operational_manager');
+            $isFat = $user->hasRole('manager_fat');
+            $isGm = $user->hasRole('general_manager');
+            $isProc = $user->hasRole('procurement');
+            $isSuperadmin = $user->hasRole('superadmin');
+
+            foreach ($eligibleItems as $item) {
+                $isLevel1Approver = ($purchaseRequest->pr_type === 'non_operational') ? $isFat : $isOm;
+
+                if (($isLevel1Approver || $isSuperadmin) && $item->status === 'pending') {
+                    $status = 'rejected_om';
+                    $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+                } elseif (($isGm || $isSuperadmin) && $item->status === 'approved_om') {
+                    $status = 'rejected_gm';
+                    $approverRole = 'general_manager';
+                } elseif (($isProc || $isSuperadmin) && $item->status === 'approved_gm') {
+                    $status = 'rejected_proc';
+                    $approverRole = 'procurement';
+                } else {
+                    continue;
+                }
+
+                $item->update([
+                    'status' => $status,
+                    'reject_reason' => $request->reject_reason,
+                    'rejected_by' => $user->id,
+                    'rejected_at' => now(),
+                ]);
+
+                Approval::create([
+                    'purchase_request_id' => $item->purchase_request_id,
+                    'pr_item_id' => $item->id,
+                    'approver_id' => $user->id,
+                    'approver_role' => $approverRole,
+                    'approval_type' => $purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status),
+                    'status' => 'rejected',
+                    'notes' => $request->reject_reason,
+                    'approved_at' => now(),
+                ]);
+
+                // Send notification
+                $recipients = $this->getSharedRecipients($purchaseRequest, $purchaseRequest->user);
+                $msg = "Item '{$item->item_name}' ditolak secara massal. Catatan validasi: " . $request->reject_reason;
+                Notification::send($recipients, new PrStatusUpdatedNotification($purchaseRequest, $msg));
+                Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification($purchaseRequest, $msg)));
+            }
+
+            // Evaluate PR advancement
+            $this->checkAndAdvancePrStatus($purchaseRequest);
+
+            \DB::commit();
+            return redirect()->back()->with('success', count($eligibleItems) . ' item berhasil ditolak.');
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR rejectAll failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal menolak semua item: ' . $e->getMessage());
+        }
+    }
+
+    public function sendNoteAll(Request $request, PurchaseRequest $purchaseRequest)
+    {
+        $request->validate([
+            'notes' => 'required|string|max:1000',
+        ]);
+
+        $user = Auth::user();
+        $eligibleItems = $purchaseRequest->getEligibleItemsForUser($user, 'note');
+
+        if ($eligibleItems->isEmpty()) {
+            return redirect()->back()->with('error', 'Tidak ada item untuk dikirimi catatan.');
+        }
+
+        \DB::beginTransaction();
+        try {
+            $roleName = $user->getRoleNames()->first();
+
+            foreach ($eligibleItems as $item) {
+                $role = $roleName;
+                $approvalType = 'unknown';
+
+                if ($purchaseRequest->user_id == $user->id) {
+                    $approvalType = 'requester';
+                } elseif (($role === 'procurement' || $role === 'superadmin') && $item->status === 'pending_estimate') {
+                    $approvalType = 'procurement';
+                    $role = 'procurement';
+                } elseif ($role === 'superadmin' && $item->status === 'pending') {
+                    $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
+                    $role = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
+                } elseif ($role === 'superadmin' && $item->status === 'approved_om') {
+                    $approvalType = 'gm';
+                    $role = 'general_manager';
+                } elseif ($role === 'superadmin' && $item->status === 'approved_gm') {
+                    $approvalType = 'procurement';
+                    $role = 'procurement';
+                } elseif ($role === 'operational_manager' && $item->status === 'pending' && $purchaseRequest->pr_type === 'operational') {
+                    $approvalType = 'om';
+                } elseif ($role === 'manager_fat' && $item->status === 'pending' && $purchaseRequest->pr_type === 'non_operational') {
+                    $approvalType = 'fatm';
+                } elseif ($role === 'general_manager' && $item->status === 'approved_om') {
+                    $approvalType = 'gm';
+                } elseif ($role === 'procurement' && $item->status === 'approved_gm') {
+                    $approvalType = 'procurement';
+                } else {
+                    continue;
+                }
+
+                Approval::create([
+                    'purchase_request_id' => $item->purchase_request_id,
+                    'pr_item_id' => $item->id,
+                    'approver_id' => $user->id,
+                    'approver_role' => $role,
+                    'approval_type' => $approvalType,
+                    'status' => 'pending',
+                    'notes' => $request->notes,
+                    'approved_at' => now(),
+                ]);
+
+                $recipients = $this->getSharedRecipients($purchaseRequest, $purchaseRequest->user);
+                $senderName = $approvalType === 'requester' ? "Requester ({$user->name})" : strtoupper(str_replace('_', ' ', $role));
+                
+                Notification::send($recipients, new PrStatusUpdatedNotification(
+                    $purchaseRequest,
+                    "Catatan massal untuk item '{$item->item_name}' dari " . $senderName . ": {$request->notes}"
+                ));
+                Notification::send($recipients, new QueuedMailWrapper(new PrStatusUpdatedNotification(
+                    $purchaseRequest,
+                    "Catatan massal untuk item '{$item->item_name}' dari " . $senderName . ": {$request->notes}"
+                )));
+            }
+
+            \DB::commit();
+            return redirect()->back()->with('success', 'Catatan massal berhasil dikirim.');
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('PR sendNoteAll failed: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Gagal mengirim catatan massal: ' . $e->getMessage());
+        }
+    }
+
     public function sendValidationNote(Request $request, PrItem $item)
     {
         $request->validate([

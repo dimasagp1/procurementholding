@@ -58,6 +58,10 @@ Route::middleware('auth')->group(function () {
 
 
 
+    Route::post('purchase-requests/{purchaseRequest}/approve-all', [PurchaseRequestController::class, 'approveAll'])->name('purchase-requests.approve-all');
+    Route::post('purchase-requests/{purchaseRequest}/reject-all', [PurchaseRequestController::class, 'rejectAll'])->name('purchase-requests.reject-all');
+    Route::post('purchase-requests/{purchaseRequest}/send-note-all', [PurchaseRequestController::class, 'sendNoteAll'])->name('purchase-requests.send-note-all');
+
     Route::post('purchase-requests/{item}/approve', [PurchaseRequestController::class, 'approveItem'])->name('purchase-requests.approve-item');
     Route::post('purchase-requests/{item}/reject', [PurchaseRequestController::class, 'rejectItem'])->name('purchase-requests.reject-item');
     Route::post('purchase-requests/{item}/send-note', [PurchaseRequestController::class, 'sendValidationNote'])->name('purchase-requests.send-note');

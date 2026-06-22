@@ -1,4 +1,8 @@
 <x-app-layout>
+    @php
+        $eligibleApproveItems = $purchaseRequest->getEligibleItemsForUser(Auth::user(), 'approve');
+        $eligibleNoteItems = $purchaseRequest->getEligibleItemsForUser(Auth::user(), 'note');
+    @endphp
     <x-slot name="header">
         <h2 class="font-semibold text-xl leading-tight mb-0">
              PR #{{ $purchaseRequest->pr_number }}
@@ -54,44 +58,63 @@
                             <p><strong>Date:</strong> {{ $purchaseRequest->request_date->format('d M Y') }}</p>
                             <p><strong>Purpose:</strong> {{ $purchaseRequest->purpose }}</p>
                         </div>
-                        <div class="col-md-6 pr-header-right" style="text-align:right;">
-                            <p><strong>Status:</strong> <span class="badge badge-info">{{ ucfirst($purchaseRequest->status) }}</span></p>
-                            
-                            @if($purchaseRequest->isEditable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
-                                <a href="{{ route('purchase-requests.edit', $purchaseRequest) }}" class="btn btn-warning btn-sm mt-2 mr-2">
-                                    <i class="fas fa-edit"></i> Edit Request
-                                </a>
-                            @endif
+                        <div class="col-md-6 pr-header-right">
+                            <div class="d-flex flex-column align-items-md-end align-items-start">
+                                <p class="mb-2"><strong>Status:</strong> <span class="badge badge-info">{{ ucfirst($purchaseRequest->status) }}</span></p>
+                                
+                                <div class="d-flex flex-wrap justify-content-md-end justify-content-start align-items-center" style="gap: 0.5rem;">
+                                    @if($purchaseRequest->isEditable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
+                                        <a href="{{ route('purchase-requests.edit', $purchaseRequest) }}" class="btn btn-warning btn-sm">
+                                            <i class="fas fa-edit"></i> Edit Request
+                                        </a>
+                                    @endif
 
-                            @if($purchaseRequest->status === 'draft' && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
-                                <form action="{{ route('purchase-requests.submit-draft', $purchaseRequest) }}" method="POST" class="d-inline mt-2 mr-2 form-confirm" data-message="Apakah Anda yakin ingin mengajukan Purchase Request ini?">
-                                    @csrf
-                                    <button type="submit" class="btn btn-success btn-sm">
-                                        <i class="fas fa-paper-plane"></i> Ajukan PR
+                                    @if($purchaseRequest->status === 'draft' && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
+                                        <form action="{{ route('purchase-requests.submit-draft', $purchaseRequest) }}" method="POST" class="d-inline form-confirm" data-message="Apakah Anda yakin ingin mengajukan Purchase Request ini?">
+                                            @csrf
+                                            <button type="submit" class="btn btn-success btn-sm">
+                                                <i class="fas fa-paper-plane"></i> Ajukan PR
+                                            </button>
+                                        </form>
+                                    @endif
+
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="openPreviewModal('{{ route('purchase-requests.preview', $purchaseRequest) }}', '{{ route('purchase-requests.export', $purchaseRequest) }}')">
+                                        <i class="fas fa-file-pdf"></i> Export PDF
                                     </button>
-                                </form>
-                            @endif
 
-                            <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="openPreviewModal('{{ route('purchase-requests.preview', $purchaseRequest) }}', '{{ route('purchase-requests.export', $purchaseRequest) }}')">
-                                <i class="fas fa-file-pdf"></i> Export PDF
-                            </button>
+                                    <form action="{{ route('purchase-requests.resend-notification', $purchaseRequest) }}" method="POST" class="d-inline form-confirm" data-message="Kirim ulang email notifikasi untuk PR ini?">
+                                        @csrf
+                                        <button type="submit" class="btn btn-info btn-sm">
+                                            <i class="fas fa-paper-plane"></i> Kirim Ulang Email
+                                        </button>
+                                    </form>
 
-                            <form action="{{ route('purchase-requests.resend-notification', $purchaseRequest) }}" method="POST" class="d-inline mt-2 ml-2 form-confirm" data-message="Kirim ulang email notifikasi untuk PR ini?">
-                                @csrf
-                                <button type="submit" class="btn btn-info btn-sm">
-                                    <i class="fas fa-paper-plane"></i> Kirim Ulang Email
-                                </button>
-                            </form>
+                                    @if($purchaseRequest->isDeletable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
+                                        <form action="{{ route('purchase-requests.destroy', $purchaseRequest) }}" method="POST" class="d-inline form-confirm" data-message="Apakah Anda yakin ingin menghapus Purchase Request ini?">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" class="btn btn-danger btn-sm">
+                                                <i class="fas fa-trash"></i> Hapus Request
+                                            </button>
+                                        </form>
+                                    @endif
 
-                            @if($purchaseRequest->isDeletable() && (auth()->id() == $purchaseRequest->user_id || auth()->user()->hasRole('superadmin')))
-                                <form action="{{ route('purchase-requests.destroy', $purchaseRequest) }}" method="POST" class="d-inline mt-2 ml-2 form-confirm" data-message="Apakah Anda yakin ingin menghapus Purchase Request ini?">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="btn btn-danger btn-sm">
-                                        <i class="fas fa-trash"></i> Hapus Request
-                                    </button>
-                                </form>
-                            @endif
+                                    @if($eligibleApproveItems->isNotEmpty())
+                                        <button type="button" class="btn btn-success btn-sm" data-toggle="modal" data-target="#bulkApproveModal">
+                                            <i class="fas fa-check-double"></i> Approve ALL ({{ $eligibleApproveItems->count() }})
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-sm" data-toggle="modal" data-target="#bulkRejectModal">
+                                            <i class="fas fa-times-circle"></i> Reject ALL ({{ $eligibleApproveItems->count() }})
+                                        </button>
+                                    @endif
+
+                                    @if($eligibleNoteItems->isNotEmpty())
+                                        <button type="button" class="btn btn-primary btn-sm" data-toggle="modal" data-target="#bulkNoteModal">
+                                            <i class="fas fa-comments"></i> Notes ALL ({{ $eligibleNoteItems->count() }})
+                                        </button>
+                                    @endif
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1630,6 +1653,89 @@
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                 </div>
             </div>
+        </div>
+    </div>
+    <!-- Bulk Approve Modal -->
+    <div class="modal fade" id="bulkApproveModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <form action="{{ route('purchase-requests.approve-all', $purchaseRequest) }}" method="POST">
+                @csrf
+                <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                    <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h5 class="modal-title">Approve All Items</h5>
+                        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body text-left">
+                        <p>Apakah Anda yakin ingin menyetujui semua item yang tertunda (<strong>{{ $eligibleApproveItems->count() }}</strong> item)?</p>
+                        <div class="form-group">
+                            <label class="text-gray-300">Notes (Optional - akan diterapkan ke semua item)</label>
+                            <textarea name="notes" class="form-control" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-success">Confirm Approve ALL</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bulk Reject Modal -->
+    <div class="modal fade" id="bulkRejectModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <form action="{{ route('purchase-requests.reject-all', $purchaseRequest) }}" method="POST">
+                @csrf
+                <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                    <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h5 class="modal-title">Reject All Items</h5>
+                        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body text-left">
+                        <p>Apakah Anda yakin ingin menolak semua item yang tertunda (<strong>{{ $eligibleApproveItems->count() }}</strong> item)?</p>
+                        <div class="form-group">
+                            <label class="text-gray-300">Alasan Penolakan / Reject Reason * (Wajib)</label>
+                            <textarea name="reject_reason" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-danger">Confirm Reject ALL</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Bulk Note Modal -->
+    <div class="modal fade" id="bulkNoteModal" tabindex="-1" role="dialog" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <form action="{{ route('purchase-requests.send-note-all', $purchaseRequest) }}" method="POST">
+                @csrf
+                <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                    <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <h5 class="modal-title">Kirim Catatan Massal</h5>
+                        <button type="button" class="close text-white" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body text-left">
+                        <p>Kirim catatan validasi untuk semua item yang terpilih (<strong>{{ $eligibleNoteItems->count() }}</strong> item)?</p>
+                        <div class="form-group">
+                            <label class="text-gray-300">Catatan Validasi * (Wajib)</label>
+                            <textarea name="notes" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                        <button type="submit" class="btn btn-primary">Confirm Send Note ALL</button>
+                    </div>
+                </div>
+            </form>
         </div>
     </div>
 </x-app-layout>

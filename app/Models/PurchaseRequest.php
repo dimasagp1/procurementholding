@@ -158,4 +158,62 @@ class PurchaseRequest extends Model
 
         return false;
     }
+
+    public function getEligibleItemsForUser($user, $action)
+    {
+        if (!$user) {
+            return collect();
+        }
+        $isOm = $user->hasRole('operational_manager');
+        $isFat = $user->hasRole('manager_fat');
+        $isGm = $user->hasRole('general_manager');
+        $isProc = $user->hasRole('procurement');
+        $isSuperadmin = $user->hasRole('superadmin');
+        
+        $role = $user->getRoleNames()->first();
+
+        return $this->items->filter(function ($item) use ($user, $isOm, $isFat, $isGm, $isProc, $isSuperadmin, $role, $action) {
+            if ($this->status === 'draft') {
+                return false;
+            }
+
+            if ($action === 'approve' || $action === 'reject') {
+                $isLevel1Approver = ($this->pr_type === 'non_operational') ? $isFat : $isOm;
+                
+                if (($isLevel1Approver || $isSuperadmin) && $item->status === 'pending') {
+                    return true;
+                }
+                if (($isGm || $isSuperadmin) && $item->status === 'approved_om') {
+                    return true;
+                }
+                if (($isProc || $isSuperadmin) && $item->status === 'approved_gm') {
+                    return true;
+                }
+            } elseif ($action === 'note') {
+                if ($this->user_id == $user->id) {
+                    return true;
+                }
+                if (($isProc || $isSuperadmin) && $item->status === 'pending_estimate') {
+                    return true;
+                }
+                if ($isSuperadmin && in_array($item->status, ['pending', 'approved_om', 'approved_gm'])) {
+                    return true;
+                }
+                if ($isOm && $item->status === 'pending' && $this->pr_type === 'operational') {
+                    return true;
+                }
+                if ($isFat && $item->status === 'pending' && $this->pr_type === 'non_operational') {
+                    return true;
+                }
+                if ($isGm && $item->status === 'approved_om') {
+                    return true;
+                }
+                if ($isProc && $item->status === 'approved_gm') {
+                    return true;
+                }
+            }
+
+            return false;
+        });
+    }
 }
