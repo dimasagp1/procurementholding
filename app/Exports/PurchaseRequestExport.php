@@ -12,12 +12,18 @@ class PurchaseRequestExport implements FromCollection, WithHeadings, WithMapping
     protected $status;
     protected $startDate;
     protected $endDate;
+    protected $departmentId;
+    protected $searchType;
+    protected $searchQuery;
 
-    public function __construct($status = null, $startDate = null, $endDate = null)
+    public function __construct($status = null, $startDate = null, $endDate = null, $departmentId = null, $searchType = null, $searchQuery = null)
     {
         $this->status = $status;
         $this->startDate = $startDate;
         $this->endDate = $endDate;
+        $this->departmentId = $departmentId;
+        $this->searchType = $searchType;
+        $this->searchQuery = $searchQuery;
     }
 
     /**
@@ -35,6 +41,20 @@ class PurchaseRequestExport implements FromCollection, WithHeadings, WithMapping
             $query->whereDate('created_at', '<=', $this->endDate);
         }
 
+        if ($this->departmentId) {
+            $query->where('department_id', $this->departmentId);
+        }
+
+        if ($this->searchQuery) {
+            if ($this->searchType === 'item_name') {
+                $query->whereHas('items', function($q) {
+                    $q->where('item_name', 'like', '%' . $this->searchQuery . '%');
+                });
+            } else {
+                $query->where('pr_number', 'like', '%' . $this->searchQuery . '%');
+            }
+        }
+
         $prs = $query->get();
 
         if ($this->status) {
@@ -50,6 +70,11 @@ class PurchaseRequestExport implements FromCollection, WithHeadings, WithMapping
         $items = collect();
         foreach ($prs as $pr) {
             foreach ($pr->items as $item) {
+                if ($this->searchType === 'item_name' && $this->searchQuery) {
+                    if (stripos($item->item_name, $this->searchQuery) === false) {
+                        continue;
+                    }
+                }
                 $item->pr_ref = $pr; // Keep reference to PR
                 $items->push($item);
             }

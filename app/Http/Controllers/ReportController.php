@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\PurchaseRequest;
 use App\Models\PrItem;
+use App\Models\Department;
 use Illuminate\Http\Request;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\PurchaseRequestExport;
@@ -15,7 +16,7 @@ class ReportController extends Controller
     {
         $this->authorize('view reports');
 
-        $query = PurchaseRequest::with('items');
+        $query = PurchaseRequest::with(['items', 'department', 'user']);
 
         if ($request->start_date) {
             $query->whereDate('created_at', '>=', $request->start_date);
@@ -23,11 +24,16 @@ class ReportController extends Controller
         if ($request->end_date) {
             $query->whereDate('created_at', '<=', $request->end_date);
         }
-        if ($request->status) {
-            // Because approval_status is a dynamic attribute, we need to filter the resulting collection
-            // but for performance if status is draft/pending we can filter the query
-            if (in_array($request->status, ['draft', 'pending'])) {
-                $query->where('status', $request->status);
+        if ($request->department_id) {
+            $query->where('department_id', $request->department_id);
+        }
+        if ($request->search_query) {
+            if ($request->search_type === 'item_name') {
+                $query->whereHas('items', function($q) use ($request) {
+                    $q->where('item_name', 'like', '%' . $request->search_query . '%');
+                });
+            } else {
+                $query->where('pr_number', 'like', '%' . $request->search_query . '%');
             }
         }
 
@@ -51,12 +57,24 @@ class ReportController extends Controller
             'completed_pr' => $prs->filter(fn($p) => $p->approval_status === 'Completed')->count(),
         ];
 
-        return view('reports.index', compact('stats', 'prs'));
+        $departments = Department::orderBy('name')->get();
+
+        return view('reports.index', compact('stats', 'prs', 'departments'));
     }
 
     public function export(Request $request)
     {
         $this->authorize('view reports');
-        return Excel::download(new PurchaseRequestExport($request->status, $request->start_date, $request->end_date), 'PR-Report-' . now()->format('YmdHi') . '.xlsx');
+        return Excel::download(
+            new PurchaseRequestExport(
+                $request->status,
+                $request->start_date,
+                $request->end_date,
+                $request->department_id,
+                $request->search_type,
+                $request->search_query
+            ),
+            'PR-Report-' . now()->format('YmdHi') . '.xlsx'
+        );
     }
 }

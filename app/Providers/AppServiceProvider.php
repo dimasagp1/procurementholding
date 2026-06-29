@@ -35,5 +35,10 @@ class AppServiceProvider extends ServiceProvider
             View::share('appLogo', Setting::get('app_logo'));
             View::share('appFavicon', Setting::get('app_favicon'));
         }
+
+        // Redirect all outgoing emails in local environment to the tester's email
+        if (config('app.env') === 'local') {
+            \Illuminate\Support\Facades\Mail::alwaysTo('informationtechnologyherbatech@gmail.com');
+        }
     }
 }

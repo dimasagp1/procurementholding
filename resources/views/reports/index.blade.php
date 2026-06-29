@@ -54,7 +54,7 @@
                     
                     <form id="filterForm" action="{{ route('reports.index') }}" method="GET">
                         <div class="row">
-                            <div class="col-md-3 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <label>Status</label>
                                 <select name="status" class="form-control">
                                     <option value="">All Statuses</option>
@@ -68,15 +68,38 @@
                                     <option value="rejected" {{ request('status') == 'rejected' ? 'selected' : '' }}>Rejected</option>
                                 </select>
                             </div>
-                            <div class="col-md-3 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <label>Start Date</label>
                                 <input type="date" name="start_date" class="form-control" value="{{ request('start_date') }}">
                             </div>
-                            <div class="col-md-3 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <label>End Date</label>
                                 <input type="date" name="end_date" class="form-control" value="{{ request('end_date') }}">
                             </div>
-                            <div class="col-md-3 mb-3 d-flex align-items-end gap-2">
+                        </div>
+                        <div class="row">
+                            <div class="col-md-4 mb-3">
+                                <label>Department</label>
+                                <select name="department_id" class="form-control">
+                                    <option value="">All Departments</option>
+                                    @foreach($departments as $dept)
+                                        <option value="{{ $dept->id }}" {{ request('department_id') == $dept->id ? 'selected' : '' }}>
+                                            {{ $dept->name }} ({{ $dept->code }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="col-md-4 mb-3">
+                                <label>Filter Per Nomor PR atau ITEMS</label>
+                                <div class="input-group">
+                                    <select name="search_type" class="form-control border-right-0" style="max-width: 140px; border-top-right-radius: 0; border-bottom-right-radius: 0;">
+                                        <option value="pr_number" {{ request('search_type') == 'pr_number' ? 'selected' : '' }}>Nomor PR</option>
+                                        <option value="item_name" {{ request('search_type') == 'item_name' ? 'selected' : '' }}>ITEMS</option>
+                                    </select>
+                                    <input type="text" name="search_query" class="form-control" style="border-top-left-radius: 0; border-bottom-left-radius: 0;" placeholder="Cari..." value="{{ request('search_query') }}">
+                                </div>
+                            </div>
+                            <div class="col-md-4 mb-3 d-flex align-items-end" style="gap: 0.5rem;">
                                 <button type="submit" class="btn btn-primary flex-fill">
                                     <i class="fas fa-filter mr-1"></i> Filter
                                 </button>
