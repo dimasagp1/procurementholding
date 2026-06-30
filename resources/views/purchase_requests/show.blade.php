@@ -124,8 +124,8 @@
                 $showBudgetDetails = $purchaseRequest->status !== 'draft' && (
                     Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']) ||
                     Auth::id() === $purchaseRequest->user_id
-                );
-                $isManagerOrAdmin = Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']);
+                ) && !Auth::user()->hasRole('procurement_holding');
+                $isManagerOrAdmin = Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']) && !Auth::user()->hasRole('procurement_holding');
             @endphp
 
             @if($showBudgetDetails)
@@ -225,29 +225,44 @@
                                         @endif
                                         @php
                                             $receivedQty = $item->received_quantity;
+                                            $rejectedQty = $item->deliveries->sum('rejected_quantity');
                                             $remainingQty = $item->quantity - $receivedQty;
                                         @endphp
-                                        @if($receivedQty > 0)
-                                            <br><small class="text-success font-weight-bold">Diterima: {{ $receivedQty }}</small>
-                                            @if($remainingQty > 0)
-                                                <br><small class="text-warning font-weight-bold">Sisa: {{ $remainingQty }}</small>
-                                            @endif
+                                        @if($receivedQty > 0 || $rejectedQty > 0)
+                                            <div class="mt-1" style="font-size: 0.72rem; line-height: 1.4;">
+                                                <span class="text-success font-weight-bold">Diterima: {{ (float)$receivedQty }}</span>
+                                                @if($rejectedQty > 0)
+                                                    <span class="text-muted"> | </span><span class="text-danger font-weight-bold">Ditolak: {{ (float)$rejectedQty }}</span>
+                                                @endif
+                                                @if($remainingQty > 0)
+                                                    <span class="text-muted"> | </span><span class="text-warning font-weight-bold">Sisa: {{ (float)$remainingQty }}</span>
+                                                @endif
+                                            </div>
                                             @if($item->deliveries->isNotEmpty())
                                                 <div class="mt-2 text-left p-1 rounded" style="background-color: rgba(255,255,255,0.05); font-size: 0.7rem;">
                                                     @foreach($item->deliveries as $del)
-                                                        @if($del->notes || $del->attachment_path)
-                                                            <div class="mb-1 pb-1 {{ !$loop->last ? 'border-bottom border-secondary' : '' }}">
-                                                                <span class="text-info">{{ $del->delivery_date->format('d/m/Y') }} ({{ $del->received_quantity }}):</span><br>
-                                                                @if($del->notes)
-                                                                    <span class="text-muted"><i class="fas fa-comment-alt"></i> {{ $del->notes }}</span><br>
+                                                        <div class="mb-1 pb-1 {{ !$loop->last ? 'border-bottom border-secondary' : '' }}">
+                                                            <span class="text-info">{{ $del->delivery_date->format('d/m/Y') }}:</span><br>
+                                                            @if($del->received_quantity > 0)
+                                                                <span class="text-success" style="font-size:0.68rem; font-weight:600;"><i class="fas fa-check-circle mr-1"></i>Diterima: {{ (float)$del->received_quantity }}</span><br>
+                                                            @endif
+                                                            @if($del->rejected_quantity > 0)
+                                                                <span class="text-danger" style="font-size:0.68rem; font-weight:600;"><i class="fas fa-times-circle mr-1"></i>Ditolak: {{ (float)$del->rejected_quantity }}</span><br>
+                                                                @if($del->rejection_reason)
+                                                                    <span class="text-danger pl-3 d-block" style="font-size: 0.65rem; line-height: 1.2;">Alasan: {{ $del->rejection_reason }}</span>
                                                                 @endif
-                                                                @if($del->attachment_path)
+                                                            @endif
+                                                            @if($del->notes)
+                                                                <span class="text-muted pl-3 d-block" style="font-size: 0.65rem; line-height: 1.2;"><i class="fas fa-comment-alt mr-1"></i>{{ $del->notes }}</span>
+                                                            @endif
+                                                            @if($del->attachment_path)
+                                                                <div class="pl-3 mt-1">
                                                                     <a href="{{ asset('storage/' . $del->attachment_path) }}" class="text-blue-400 preview-attachment" data-url="{{ asset('storage/' . $del->attachment_path) }}" data-filename="{{ basename($del->attachment_path) }}">
                                                                         <i class="fas fa-paperclip"></i> View File
                                                                     </a>
-                                                                @endif
-                                                            </div>
-                                                        @endif
+                                                                </div>
+                                                            @endif
+                                                        </div>
                                                     @endforeach
                                                 </div>
                                             @endif
@@ -311,9 +326,11 @@
                                             </div>
                                             @php
                                                 $isProc = Auth::user()->hasRole('procurement');
+                                                $isProcHolding = Auth::user()->hasRole('procurement_holding') && $purchaseRequest->pr_type === 'operational';
                                                 $isSuperadmin = Auth::user()->hasRole('superadmin');
+                                                $canInputArrival = ($isProc && $purchaseRequest->pr_type !== 'operational') || $isProcHolding || $isSuperadmin;
                                             @endphp
-                                            @if($isProc || $isSuperadmin)
+                                            @if($canInputArrival)
                                                 <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
                                                     <i class="fas fa-edit"></i> Reschedule
                                                 </button>
@@ -423,7 +440,9 @@
                                              $isFat = Auth::user()->hasRole('manager_fat');
                                              $isGm = Auth::user()->hasRole('general_manager');
                                              $isProc = Auth::user()->hasRole('procurement');
+                                             $isProcHolding = Auth::user()->hasRole('procurement_holding') && $purchaseRequest->pr_type === 'operational';
                                              $isSuperadmin = Auth::user()->hasRole('superadmin');
+                                             $canInputArrival = ($isProc && $purchaseRequest->pr_type !== 'operational') || $isProcHolding || $isSuperadmin;
                                             
                                              if ($purchaseRequest->status !== 'draft') {
                                                 if ($isOm && $item->status == 'pending' && $purchaseRequest->pr_type === 'operational') { $canApprove = true; $canSendNote = true; }
@@ -451,32 +470,34 @@
                                             </button>
                                         @endif
 
-                                        @if(($isProc || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
-                                            <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
-                                                @csrf
-                                                <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
-                                                    <option value="approved_proc" {{ in_array($item->status, ['approved_proc']) ? 'selected' : '' }}>
-                                                        Ready to Process {{ $item->processed_at ? '(' . $item->processed_at->format('d/m H:i') . ')' : '' }}
-                                                    </option>
-                                                    <option value="ordered" {{ $item->status == 'ordered' ? 'selected' : '' }}>
-                                                        Ordered {{ $item->ordered_at ? '(' . $item->ordered_at->format('d/m H:i') . ')' : '' }}
-                                                    </option>
-                                                    <option value="delivered" {{ $item->status == 'delivered' ? 'selected' : '' }}>
-                                                        Delivered {{ $item->delivered_at ? '(' . $item->delivered_at->format('d/m H:i') . ')' : '' }}
-                                                    </option>
-                                                    <option value="completed" {{ $item->status == 'completed' ? 'selected' : '' }}>
-                                                        Completed {{ $item->completed_at ? '(' . $item->completed_at->format('d/m H:i') . ')' : '' }}
-                                                    </option>
-                                                </select>
-                                            </form>
+                                        @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
+                                            @if($isProc || $isSuperadmin)
+                                                <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
+                                                    @csrf
+                                                    <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
+                                                        <option value="approved_proc" {{ in_array($item->status, ['approved_proc']) ? 'selected' : '' }}>
+                                                            Ready to Process {{ $item->processed_at ? '(' . $item->processed_at->format('d/m H:i') . ')' : '' }}
+                                                        </option>
+                                                        <option value="ordered" {{ $item->status == 'ordered' ? 'selected' : '' }}>
+                                                            Ordered {{ $item->ordered_at ? '(' . $item->ordered_at->format('d/m H:i') . ')' : '' }}
+                                                        </option>
+                                                        <option value="delivered" {{ $item->status == 'delivered' ? 'selected' : '' }}>
+                                                            Delivered {{ $item->delivered_at ? '(' . $item->delivered_at->format('d/m H:i') . ')' : '' }}
+                                                        </option>
+                                                        <option value="completed" {{ $item->status == 'completed' ? 'selected' : '' }}>
+                                                            Completed {{ $item->completed_at ? '(' . $item->completed_at->format('d/m H:i') . ')' : '' }}
+                                                        </option>
+                                                    </select>
+                                                </form>
+                                            @endif
                                             
-                                            @if(in_array($item->status, ['ordered', 'delivered']) && ($isProc || $isSuperadmin))
-                                                @if(!$item->po_number)
+                                            @if(in_array($item->status, ['ordered', 'delivered']))
+                                                @if(!$item->po_number && ($isProc || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> Input PO & Rencana
                                                     </button>
                                                 @endif
-                                                @if($remainingQty > 0 && $item->deliveryPlans->where('is_active', true)->isNotEmpty())
+                                                @if($remainingQty > 0 && $item->deliveryPlans->where('is_active', true)->isNotEmpty() && $canInputArrival)
                                                 <button type="button" class="btn btn-primary btn-xs mt-2 w-100" data-toggle="modal" data-target="#deliveryModal-{{ $item->id }}">
                                                     <i class="fas fa-truck-loading"></i> Input Kedatangan Real
                                                 </button>
@@ -876,13 +897,17 @@
                                                     </div>
                                                     <div class="form-row">
                                                         <div class="col-md-6 form-group">
-                                                            <label class="text-gray-300">Jumlah Datang Saat Ini *</label>
+                                                            <label class="text-gray-300">Jumlah Diterima (Bagus) *</label>
                                                             <input type="number" step="0.01" name="received_quantity" id="qty_input_{{ $item->id }}" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                         </div>
                                                         <div class="col-md-6 form-group">
-                                                            <label class="text-gray-300">Tanggal Kedatangan *</label>
-                                                            <input type="date" name="delivery_date" id="date_input_{{ $item->id }}" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                            <label class="text-gray-300">Jumlah Ditolak (Rusak/Salah) *</label>
+                                                            <input type="number" step="0.01" name="rejected_quantity" value="0" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                         </div>
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="text-gray-300">Tanggal Kedatangan *</label>
+                                                        <input type="date" name="delivery_date" id="date_input_{{ $item->id }}" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
                                                     
                                                     <script>
@@ -903,6 +928,10 @@
                                                             });
                                                         });
                                                     </script>
+                                                    <div class="form-group">
+                                                        <label class="text-gray-300">Alasan Penolakan (Wajib jika Jumlah Ditolak > 0)</label>
+                                                        <textarea name="rejection_reason" class="form-control mb-2" placeholder="Tulis alasan jika ada barang ditolak..." style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;"></textarea>
+                                                    </div>
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Catatan / Bukti Terima (Opsional)</label>
                                                         <textarea name="notes" class="form-control mb-2" placeholder="No Resi, Nama Kurir, dsb" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;"></textarea>
@@ -934,15 +963,25 @@
                                                         @foreach($item->deliveries as $delivery)
                                                             <li class="list-group-item" style="background-color: transparent; border-color: rgba(255,255,255,0.1);">
                                                                 <div class="d-flex justify-content-between align-items-center">
-                                                                    <strong class="text-success">+{{ $delivery->received_quantity }} {{ $item->uom }}</strong>
+                                                                    <div>
+                                                                        @if($delivery->received_quantity > 0)
+                                                                            <span class="badge badge-success mr-1">Diterima: {{ $delivery->received_quantity }} {{ $item->uom }}</span>
+                                                                        @endif
+                                                                        @if($delivery->rejected_quantity > 0)
+                                                                            <span class="badge badge-danger">Ditolak: {{ $delivery->rejected_quantity }} {{ $item->uom }}</span>
+                                                                        @endif
+                                                                    </div>
                                                                     <small class="text-muted">{{ $delivery->delivery_date->format('d M Y') }}</small>
                                                                 </div>
                                                                 @if($delivery->notes)
-                                                                    <div class="mt-1 small text-gray-400"><i class="fas fa-info-circle mr-1"></i>{{ $delivery->notes }}</div>
+                                                                    <div class="mt-1 small text-gray-400"><i class="fas fa-info-circle mr-1"></i><strong>Catatan:</strong> {{ $delivery->notes }}</div>
+                                                                @endif
+                                                                @if($delivery->rejected_quantity > 0 && $delivery->rejection_reason)
+                                                                    <div class="mt-1 small text-danger"><i class="fas fa-exclamation-triangle mr-1"></i><strong>Alasan Ditolak:</strong> {{ $delivery->rejection_reason }}</div>
                                                                 @endif
                                                                 <div class="d-flex justify-content-between align-items-center mt-2">
                                                                     <div class="small text-muted"><i class="fas fa-user mr-1"></i>Dicatat oleh: {{ $delivery->receiver->name ?? 'System' }}</div>
-                                                                    @if($isProc || $isSuperadmin)
+                                                                    @if($canInputArrival)
                                                                         <div class="btn-group">
                                                                             <button type="button" class="btn btn-warning btn-xs" data-toggle="modal" data-target="#editDeliveryModal-{{ $delivery->id }}" data-dismiss="modal" title="Edit Riwayat"><i class="fas fa-edit"></i></button>
                                                                             <form action="{{ route('purchase-requests.destroy-delivery', $delivery) }}" method="POST" class="d-inline ml-1" onsubmit="return confirm('Hapus riwayat ini?');">
@@ -982,13 +1021,23 @@
                                                         $otherDeliveriesTotal = $item->deliveries->where('id', '!=', $delivery->id)->sum('received_quantity');
                                                         $maxAllowed = $item->quantity - $otherDeliveriesTotal;
                                                     @endphp
-                                                    <div class="form-group">
-                                                        <label class="text-gray-300">Jumlah Datang *</label>
-                                                        <input type="number" step="0.01" name="received_quantity" class="form-control" required min="0.01" max="{{ $maxAllowed }}" value="{{ $delivery->received_quantity }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                    <div class="form-row">
+                                                        <div class="col-md-6 form-group">
+                                                            <label class="text-gray-300">Jumlah Diterima (Bagus) *</label>
+                                                            <input type="number" step="0.01" name="received_quantity" class="form-control" required min="0" max="{{ $maxAllowed }}" value="{{ $delivery->received_quantity }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                        </div>
+                                                        <div class="col-md-6 form-group">
+                                                            <label class="text-gray-300">Jumlah Ditolak (Rusak/Salah) *</label>
+                                                            <input type="number" step="0.01" name="rejected_quantity" class="form-control" required min="0" value="{{ $delivery->rejected_quantity }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                        </div>
                                                     </div>
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Tanggal Kedatangan *</label>
                                                         <input type="date" name="delivery_date" class="form-control" required value="{{ $delivery->delivery_date->format('Y-m-d') }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                    </div>
+                                                    <div class="form-group">
+                                                        <label class="text-gray-300">Alasan Penolakan (Wajib jika Jumlah Ditolak > 0)</label>
+                                                        <textarea name="rejection_reason" class="form-control mb-2" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">{{ $delivery->rejection_reason }}</textarea>
                                                     </div>
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Catatan / Bukti Terima (Opsional)</label>
@@ -1474,7 +1523,6 @@
                 
                 $('#previewFilename').text(filename);
                 $('#downloadLink').attr('href', url);
-                $('#previewBody').html('<div class="text-center p-5"><i class="fas fa-spinner fa-spin fa-3x"></i></div>');
                 
                 const $attachmentModal = $('#attachmentPreviewModal');
                 if (!$attachmentModal.parent().is('body')) {
@@ -1498,10 +1546,7 @@
                         </div>`;
                 }
                 
-                // Small delay for smooth transition
-                setTimeout(() => {
-                    $('#previewBody').html(content);
-                }, 300);
+                $('#previewBody').html(content);
             });
 
             // PR Preview Modal Functions

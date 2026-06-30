@@ -66,6 +66,11 @@ class User extends Authenticatable
         return $this->hasRole('procurement');
     }
 
+    public function isProcurementHolding()
+    {
+        return $this->hasRole('procurement_holding');
+    }
+
     public function isRegularUser()
     {
         return $this->hasRole('user');

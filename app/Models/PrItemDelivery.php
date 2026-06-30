@@ -13,8 +13,10 @@ class PrItemDelivery extends Model
     protected $fillable = [
         'pr_item_id',
         'received_quantity',
+        'rejected_quantity',
         'delivery_date',
         'notes',
+        'rejection_reason',
         'attachment_path',
         'received_by',
     ];

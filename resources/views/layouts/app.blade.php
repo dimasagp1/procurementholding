@@ -2061,6 +2061,8 @@
                 href.startsWith('javascript:') || 
                 target === '_blank' || 
                 download !== null ||
+                link.classList.contains('preview-attachment') ||
+                link.classList.contains('no-loading') ||
                 e.metaKey || 
                 e.ctrlKey || 
                 e.shiftKey || 

@@ -381,7 +381,14 @@
                                                 <div style="text-align:right;">
                                                 @foreach($item->deliveries as $delivery)
                                                     <div class="mb-1">
-                                                        <span class="text-success font-weight-bold" style="font-size:0.8rem;">{{ (float)$delivery->received_quantity }} {{ $item->uom }}</span>
+                                                        @if($delivery->received_quantity > 0)
+                                                            <span class="text-success font-weight-bold" style="font-size:0.8rem;" title="Diterima">+{{ (float)$delivery->received_quantity }} {{ $item->uom }}</span>
+                                                        @endif
+                                                        @if($delivery->rejected_quantity > 0)
+                                                            <span class="text-danger font-weight-bold" style="font-size:0.8rem;" title="Ditolak: {{ (float)$delivery->rejected_quantity }} {{ $item->uom }} (Alasan: {{ $delivery->rejection_reason }})">
+                                                                -{{ (float)$delivery->rejected_quantity }} {{ $item->uom }} (Ditolak)
+                                                            </span>
+                                                        @endif
                                                         <span class="text-muted" style="font-size:0.72rem;"> — {{ $delivery->delivery_date->format('d/m/Y') }}</span>
                                                     </div>
                                                 @endforeach

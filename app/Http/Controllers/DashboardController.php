@@ -55,6 +55,14 @@ class DashboardController extends Controller
                 if ($user->hasRole('procurement')) {
                     $q->orWhereRaw('1=1'); // Procurement sees all recent PRs
                 }
+                if ($user->hasRole('procurement_holding')) {
+                    $q->orWhere(function ($subQ) {
+                        $subQ->where('pr_type', 'operational')
+                             ->whereHas('items', function ($itemQ) {
+                                 $itemQ->whereIn('status', ['ordered', 'delivered', 'completed']);
+                             });
+                    });
+                }
             });
 
             $recentPRs = $query->orderBy('created_at', 'desc')->limit(10)->get();
@@ -82,6 +90,11 @@ class DashboardController extends Controller
                     $subQ->where('approver_id', $user->id)
                          ->where('status', 'approved');
                 });
+            });
+        } elseif ($user->hasRole('procurement_holding')) {
+            // Procurement Holding: hanya PR tipe operational
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) {
+                $q->where('pr_type', 'operational');
             });
         }
         // Superadmin, General Manager, Procurement: melihat semua item (tidak ada filter tambahan)
@@ -121,6 +134,11 @@ class DashboardController extends Controller
                     $subQ->where('approver_id', $user->id)
                          ->where('status', 'approved');
                 });
+            });
+        } elseif ($user->hasRole('procurement_holding')) {
+            // Procurement Holding: hanya PR tipe operational
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) {
+                $q->where('pr_type', 'operational');
             });
         }
         // Superadmin, General Manager, Procurement: export semua item
@@ -224,6 +242,15 @@ class DashboardController extends Controller
     {
         $role = $user->getRoleNames()->first();
         $prs = PurchaseRequest::with('items')->get();
+
+        if ($role === 'procurement_holding') {
+            return [
+                'pr_to_review' => 0,
+                'total_pr' => $prs->where('pr_type', 'operational')->count(),
+                'approved_today' => 0,
+                'rejected_today' => 0,
+            ];
+        }
         
         // Items where current status matches what this manager should review
         $pendingTarget = match($role) {

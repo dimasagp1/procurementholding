@@ -512,6 +512,10 @@ class PurchaseRequestController extends Controller
 
     public function edit(PurchaseRequest $purchaseRequest)
     {
+        if (Auth::user()->hasRole('procurement_holding')) {
+            abort(403, 'Unauthorized action.');
+        }
+
         $this->authorize('edit pr', $purchaseRequest);
 
         if (!$purchaseRequest->isEditable()) {
@@ -531,6 +535,10 @@ class PurchaseRequestController extends Controller
 
     public function update(Request $request, PurchaseRequest $purchaseRequest)
     {
+        if (Auth::user()->hasRole('procurement_holding')) {
+            abort(403, 'Unauthorized action.');
+        }
+
         \Log::info('PR Update attempt', ['id' => $purchaseRequest->id, 'data' => $request->all()]);
         $this->authorize('edit pr', $purchaseRequest);
 
@@ -1591,6 +1599,15 @@ class PurchaseRequestController extends Controller
 
     public function updateDeliveryPlans(Request $request, PrItem $item)
     {
+        $user = Auth::user();
+        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
+        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isSuperadmin = $user->hasRole('superadmin');
+
+        if (!$isProc && !$isProcHolding && !$isSuperadmin) {
+            abort(403, 'Unauthorized action. You are not allowed to update delivery plans for this type of PR.');
+        }
+
         $this->authorize('edit pr', $item->purchaseRequest);
 
         $request->validate([
@@ -1681,8 +1698,13 @@ class PurchaseRequestController extends Controller
 
     public function storeDelivery(Request $request, PrItem $item)
     {
-        // Only procurement or superadmin can add delivery
-        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+        // Only procurement (non-operational only), procurement_holding (operational only) or superadmin can add delivery
+        $user = Auth::user();
+        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
+        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isSuperadmin = $user->hasRole('superadmin');
+
+        if (!$isProc && !$isProcHolding && !$isSuperadmin) {
             abort(403, 'Unauthorized action.');
         }
 
@@ -1690,11 +1712,21 @@ class PurchaseRequestController extends Controller
         $maxAllowed = $item->quantity - $receivedSoFar;
 
         $request->validate([
-            'received_quantity' => 'required|numeric|min:0.01|max:' . $maxAllowed,
+            'received_quantity' => 'required|numeric|min:0|max:' . $maxAllowed,
+            'rejected_quantity' => 'required|numeric|min:0',
             'delivery_date' => 'required|date',
             'notes' => 'nullable|string|max:500',
+            'rejection_reason' => 'nullable|string|max:500',
             'delivery_attachment' => 'nullable|file|max:5120'
         ]);
+
+        if ($request->received_quantity + $request->rejected_quantity <= 0) {
+            return redirect()->back()->withErrors(['received_quantity' => 'Total kuantitas (Diterima + Ditolak) harus lebih besar dari 0.']);
+        }
+
+        if ($request->rejected_quantity > 0 && empty($request->rejection_reason)) {
+            return redirect()->back()->withErrors(['rejection_reason' => 'Alasan penolakan wajib diisi jika ada barang yang ditolak.']);
+        }
 
         $attachmentPath = null;
         if ($request->hasFile('delivery_attachment')) {
@@ -1703,8 +1735,10 @@ class PurchaseRequestController extends Controller
 
         $item->deliveries()->create([
             'received_quantity' => $request->received_quantity,
+            'rejected_quantity' => $request->rejected_quantity,
             'delivery_date' => $request->delivery_date,
             'notes' => $request->notes,
+            'rejection_reason' => $request->rejected_quantity > 0 ? $request->rejection_reason : null,
             'attachment_path' => $attachmentPath,
             'received_by' => Auth::id()
         ]);
@@ -1723,25 +1757,42 @@ class PurchaseRequestController extends Controller
 
     public function updateDelivery(Request $request, PrItemDelivery $delivery)
     {
-        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+        $user = Auth::user();
+        $item = $delivery->prItem;
+        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
+        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isSuperadmin = $user->hasRole('superadmin');
+
+        if (!$isProc && !$isProcHolding && !$isSuperadmin) {
             abort(403, 'Unauthorized action.');
         }
 
-        $item = $delivery->prItem;
         $otherDeliveriesTotal = $item->deliveries()->where('id', '!=', $delivery->id)->sum('received_quantity');
         $maxAllowed = $item->quantity - $otherDeliveriesTotal;
 
         $request->validate([
-            'received_quantity' => 'required|numeric|min:0.01|max:' . $maxAllowed,
+            'received_quantity' => 'required|numeric|min:0|max:' . $maxAllowed,
+            'rejected_quantity' => 'required|numeric|min:0',
             'delivery_date' => 'required|date',
             'notes' => 'nullable|string|max:500',
+            'rejection_reason' => 'nullable|string|max:500',
             'delivery_attachment' => 'nullable|file|max:5120'
         ]);
 
+        if ($request->received_quantity + $request->rejected_quantity <= 0) {
+            return redirect()->back()->withErrors(['received_quantity' => 'Total kuantitas (Diterima + Ditolak) harus lebih besar dari 0.']);
+        }
+
+        if ($request->rejected_quantity > 0 && empty($request->rejection_reason)) {
+            return redirect()->back()->withErrors(['rejection_reason' => 'Alasan penolakan wajib diisi jika ada barang yang ditolak.']);
+        }
+
         $updateData = [
             'received_quantity' => $request->received_quantity,
+            'rejected_quantity' => $request->rejected_quantity,
             'delivery_date' => $request->delivery_date,
             'notes' => $request->notes,
+            'rejection_reason' => $request->rejected_quantity > 0 ? $request->rejection_reason : null,
         ];
 
         if ($request->hasFile('delivery_attachment')) {
@@ -1771,11 +1822,16 @@ class PurchaseRequestController extends Controller
 
     public function destroyDelivery(PrItemDelivery $delivery)
     {
-        if (!Auth::user()->hasRole('procurement') && !Auth::user()->hasRole('superadmin')) {
+        $user = Auth::user();
+        $item = $delivery->prItem;
+        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
+        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isSuperadmin = $user->hasRole('superadmin');
+
+        if (!$isProc && !$isProcHolding && !$isSuperadmin) {
             abort(403, 'Unauthorized action.');
         }
 
-        $item = $delivery->prItem;
         $delivery->delete();
 
         $newTotal = $item->deliveries()->sum('received_quantity');

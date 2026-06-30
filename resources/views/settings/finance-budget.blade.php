@@ -7,6 +7,7 @@
 
     <div class="row">
         {{-- Credentials Form Card (Top, Full Width) --}}
+        @if(Auth::user()->hasRole('superadmin'))
         <div class="col-12 mb-4">
             <div class="card shadow-sm rounded-lg">
                 <div class="card-header border-bottom-0 pb-0 pt-4 px-4">
@@ -56,6 +57,7 @@
                 </form>
             </div>
         </div>
+        @endif
 
         {{-- Finance Budget Management Card (Bottom, Full Width) --}}
         <div class="col-12">
@@ -425,106 +427,116 @@
                 }
 
                 // Generate API Key
-                document.getElementById('btn-generate-key').addEventListener('click', function() {
-                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-                    let result = 'FAT_KEY_';
-                    for (let i = 0; i < 32; i++) {
-                        result += chars.charAt(Math.floor(Math.random() * chars.length));
-                    }
-                    document.getElementById('procurement_api_key').value = result;
-                });
+                const btnGenKey = document.getElementById('btn-generate-key');
+                if (btnGenKey) {
+                    btnGenKey.addEventListener('click', function() {
+                        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                        let result = 'FAT_KEY_';
+                        for (let i = 0; i < 32; i++) {
+                            result += chars.charAt(Math.floor(Math.random() * chars.length));
+                        }
+                        const keyInput = document.getElementById('procurement_api_key');
+                        if (keyInput) keyInput.value = result;
+                    });
+                }
 
                 // Test Connection
-                document.getElementById('btn-test-connection').addEventListener('click', function() {
-                    const btn = this;
-                    const urlInput = document.getElementById('finance_api_url').value;
-                    const keyInput = document.getElementById('procurement_api_key').value;
-                    const resultContainer = document.getElementById('test-connection-result');
-                    const resultInner = document.getElementById('test-connection-result-inner');
+                const btnTestConn = document.getElementById('btn-test-connection');
+                if (btnTestConn) {
+                    btnTestConn.addEventListener('click', function() {
+                        const btn = this;
+                        const urlInput = document.getElementById('finance_api_url').value;
+                        const keyInput = document.getElementById('procurement_api_key').value;
+                        const resultContainer = document.getElementById('test-connection-result');
+                        const resultInner = document.getElementById('test-connection-result-inner');
 
-                    btn.disabled = true;
-                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menghubungkan...';
-                    resultContainer.style.display = 'none';
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menghubungkan...';
+                        resultContainer.style.display = 'none';
 
-                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
-                        || document.querySelector('input[name="_token"]')?.value;
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+                            || document.querySelector('input[name="_token"]')?.value;
 
-                    fetch('{{ route("settings.test-finance-api") }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken,
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            finance_api_url: urlInput,
-                            procurement_api_key: keyInput
+                        fetch('{{ route("settings.test-finance-api") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                finance_api_url: urlInput,
+                                procurement_api_key: keyInput
+                            })
                         })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        resultContainer.style.display = 'block';
-                        if (data.success) {
-                            resultInner.className = 'alert alert-success mb-0 py-2 px-3 text-xs';
-                            resultInner.innerHTML = `<strong><i class="fas fa-check-circle mr-1"></i> Sukses!</strong> Terhubung ke FAT (${data.latency_ms}ms)`;
-                        } else {
+                        .then(res => res.json())
+                        .then(data => {
+                            resultContainer.style.display = 'block';
+                            if (data.success) {
+                                resultInner.className = 'alert alert-success mb-0 py-2 px-3 text-xs';
+                                resultInner.innerHTML = `<strong><i class="fas fa-check-circle mr-1"></i> Sukses!</strong> Terhubung ke FAT (${data.latency_ms}ms)`;
+                            } else {
+                                resultInner.className = 'alert alert-danger mb-0 py-2 px-3 text-xs';
+                                resultInner.innerHTML = `<strong><i class="fas fa-times-circle mr-1"></i> Gagal!</strong> ${data.message}`;
+                            }
+                        })
+                        .catch(err => {
+                            resultContainer.style.display = 'block';
                             resultInner.className = 'alert alert-danger mb-0 py-2 px-3 text-xs';
-                            resultInner.innerHTML = `<strong><i class="fas fa-times-circle mr-1"></i> Gagal!</strong> ${data.message}`;
-                        }
-                    })
-                    .catch(err => {
-                        resultContainer.style.display = 'block';
-                        resultInner.className = 'alert alert-danger mb-0 py-2 px-3 text-xs';
-                        resultInner.innerHTML = `<strong><i class="fas fa-exclamation-triangle mr-1"></i> Error:</strong> ${err.message}`;
-                    })
-                    .finally(() => {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fas fa-satellite-dish mr-1"></i> Test Koneksi';
+                            resultInner.innerHTML = `<strong><i class="fas fa-exclamation-triangle mr-1"></i> Error:</strong> ${err.message}`;
+                        })
+                        .finally(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fas fa-satellite-dish mr-1"></i> Test Koneksi';
+                        });
                     });
-                });
+                }
 
                 // Save Credentials
-                document.getElementById('form-finance-credentials').addEventListener('submit', function(e) {
-                    e.preventDefault();
-                    const btn = document.getElementById('btn-save-credentials');
-                    const urlInput = document.getElementById('finance_api_url').value;
-                    const keyInput = document.getElementById('procurement_api_key').value;
+                const formCredentials = document.getElementById('form-finance-credentials');
+                if (formCredentials) {
+                    formCredentials.addEventListener('submit', function(e) {
+                        e.preventDefault();
+                        const btn = document.getElementById('btn-save-credentials');
+                        const urlInput = document.getElementById('finance_api_url').value;
+                        const keyInput = document.getElementById('procurement_api_key').value;
 
-                    btn.disabled = true;
-                    btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyimpan...';
+                        btn.disabled = true;
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Menyimpan...';
 
-                    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
-                        || document.querySelector('input[name="_token"]')?.value;
+                        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content
+                            || document.querySelector('input[name="_token"]')?.value;
 
-                    fetch('{{ route("settings.update-finance-credentials") }}', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRF-TOKEN': csrfToken,
-                            'Accept': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            finance_api_url: urlInput,
-                            procurement_api_key: keyInput
+                        fetch('{{ route("settings.update-finance-credentials") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-TOKEN': csrfToken,
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                finance_api_url: urlInput,
+                                procurement_api_key: keyInput
+                            })
                         })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        if (data.status === 'success') {
-                            alert('Kredensial integrasi berhasil disimpan!');
-                            location.reload();
-                        } else {
-                            alert('Gagal menyimpan: ' + data.message);
-                        }
-                    })
-                    .catch(err => {
-                        alert('Error: ' + err.message);
-                    })
-                    .finally(() => {
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fas fa-save mr-1"></i> Simpan Kredensial';
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                alert('Kredensial integrasi berhasil disimpan!');
+                                location.reload();
+                            } else {
+                                alert('Gagal menyimpan: ' + data.message);
+                            }
+                        })
+                        .catch(err => {
+                            alert('Error: ' + err.message);
+                        })
+                        .finally(() => {
+                            btn.disabled = false;
+                            btn.innerHTML = '<i class="fas fa-save mr-1"></i> Simpan Kredensial';
+                        });
                     });
-                });
+                }
 
             } catch (e) {
                 console.error("Runtime Exception di script budget:", e);

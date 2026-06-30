@@ -21,6 +21,7 @@ class RoleFixSeeder extends Seeder
             'manager_fat',
             'general_manager',
             'procurement',
+            'procurement_holding',
             'user',
         ];
 
@@ -47,6 +48,12 @@ class RoleFixSeeder extends Seeder
             'create pr', 'view pr', 'edit pr', 'approve pr', 'reject pr', 'export pr', 'view dashboard',
         ]);
 
+        // Assign permissions ke role procurement_holding
+        $procurementHolding = Role::findByName('procurement_holding');
+        $procurementHolding->syncPermissions([
+            'view pr', 'edit pr', 'view dashboard', 'view reports',
+        ]);
+
         // Pastikan superadmin punya semua permission
         $superadmin = Role::findByName('superadmin');
         $superadmin->syncPermissions(Permission::all());
@@ -54,3 +61,4 @@ class RoleFixSeeder extends Seeder
         $this->command->info('✅ Roles & permissions berhasil diperbaiki.');
     }
 }
+
