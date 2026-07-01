@@ -215,53 +215,107 @@
                                         @endif
                                     </td>
                                     <td data-label="Keterangan">{{ $item->description ?? '-' }}</td>
-                                    <td data-label="Qty/UOM">
-                                        {{ $item->quantity }} {{ $item->uom }}
+                                    <td data-label="Qty/UOM" style="min-width: 220px;">
+                                        <!-- Main Quantity Capsule Badge -->
+                                        <div class="d-inline-flex align-items-center px-2 py-1 rounded-pill mb-2 font-weight-bold" 
+                                             style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); font-size: 0.85rem; color: #f8fafc; gap: 6px;">
+                                            <i class="fas fa-box text-primary" style="font-size: 0.75rem;"></i>
+                                            <span>{{ (float)$item->quantity }} {{ $item->uom }}</span>
+                                        </div>
+
                                         @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
-                                            <br>
-                                            <button type="button" class="btn btn-outline-warning btn-xs mt-1" data-toggle="modal" data-target="#editQtyModal-{{ $item->id }}">
-                                                <i class="fas fa-edit"></i> Edit Qty
+                                            <button type="button" class="btn btn-outline-warning btn-xs ml-2 d-inline-block" data-toggle="modal" data-target="#editQtyModal-{{ $item->id }}">
+                                                <i class="fas fa-edit"></i>
                                             </button>
                                         @endif
+
                                         @php
                                             $receivedQty = $item->received_quantity;
                                             $rejectedQty = $item->deliveries->sum('rejected_quantity');
-                                            $remainingQty = $item->quantity - $receivedQty;
+                                            $remainingQty = max(0, $item->quantity - $receivedQty);
+                                            
+                                            $totalQtyForBar = $item->quantity;
+                                            if ($totalQtyForBar <= 0) $totalQtyForBar = 1;
+                                            $pctReceived = ($receivedQty / $totalQtyForBar) * 100;
+                                            $pctRejected = ($rejectedQty / $totalQtyForBar) * 100;
+                                            $pctRemaining = ($remainingQty / $totalQtyForBar) * 100;
                                         @endphp
+
                                         @if($receivedQty > 0 || $rejectedQty > 0)
-                                            <div class="mt-1" style="font-size: 0.72rem; line-height: 1.4;">
-                                                <span class="text-success font-weight-bold">Diterima: {{ (float)$receivedQty }}</span>
+                                            <!-- Compact Segmented Progress Bar -->
+                                            <div class="progress mb-2" style="height: 5px; background-color: rgba(255,255,255,0.08); border-radius: 10px; overflow: hidden;">
+                                                <div class="progress-bar bg-success" role="progressbar" style="width: {{ $pctReceived }}%" title="Diterima: {{ (float)$receivedQty }} {{ $item->uom }}"></div>
+                                                <div class="progress-bar bg-danger" role="progressbar" style="width: {{ $pctRejected }}%" title="Ditolak: {{ (float)$rejectedQty }} {{ $item->uom }}"></div>
+                                                <div class="progress-bar bg-warning" role="progressbar" style="width: {{ $pctRemaining }}%" title="Sisa: {{ (float)$remainingQty }} {{ $item->uom }}"></div>
+                                            </div>
+
+                                            <!-- Summary Labels -->
+                                            <div class="d-flex flex-wrap align-items-center mb-2" style="font-size: 0.68rem; gap: 8px;">
+                                                <span class="text-success font-weight-bold"><i class="fas fa-check mr-1"></i>Diterima: {{ (float)$receivedQty }}</span>
                                                 @if($rejectedQty > 0)
-                                                    <span class="text-muted"> | </span><span class="text-danger font-weight-bold">Ditolak: {{ (float)$rejectedQty }}</span>
+                                                    <span class="text-danger font-weight-bold"><i class="fas fa-times mr-1"></i>Ditolak: {{ (float)$rejectedQty }}</span>
                                                 @endif
                                                 @if($remainingQty > 0)
-                                                    <span class="text-muted"> | </span><span class="text-warning font-weight-bold">Sisa: {{ (float)$remainingQty }}</span>
+                                                    <span class="text-warning font-weight-bold"><i class="fas fa-clock mr-1"></i>Sisa: {{ (float)$remainingQty }}</span>
                                                 @endif
                                             </div>
+
+                                            <!-- Vertical Timeline Logs -->
                                             @if($item->deliveries->isNotEmpty())
-                                                <div class="mt-2 text-left p-1 rounded" style="background-color: rgba(255,255,255,0.05); font-size: 0.7rem;">
+                                                <div class="mt-2 pl-2" style="border-left: 1px dashed rgba(255,255,255,0.15); margin-left: 6px;">
                                                     @foreach($item->deliveries as $del)
-                                                        <div class="mb-1 pb-1 {{ !$loop->last ? 'border-bottom border-secondary' : '' }}">
-                                                            <span class="text-info">{{ $del->delivery_date->format('d/m/Y') }}:</span><br>
-                                                            @if($del->received_quantity > 0)
-                                                                <span class="text-success" style="font-size:0.68rem; font-weight:600;"><i class="fas fa-check-circle mr-1"></i>Diterima: {{ (float)$del->received_quantity }}</span><br>
-                                                            @endif
-                                                            @if($del->rejected_quantity > 0)
-                                                                <span class="text-danger" style="font-size:0.68rem; font-weight:600;"><i class="fas fa-times-circle mr-1"></i>Ditolak: {{ (float)$del->rejected_quantity }}</span><br>
-                                                                @if($del->rejection_reason)
-                                                                    <span class="text-danger pl-3 d-block" style="font-size: 0.65rem; line-height: 1.2;">Alasan: {{ $del->rejection_reason }}</span>
+                                                        <div class="mb-3 position-relative" style="font-size: 0.68rem; padding-left: 10px;">
+                                                            <!-- Timeline Dot Indicator -->
+                                                            <div class="position-absolute" style="left: -14px; top: 3px; width: 7px; height: 7px; border-radius: 50%; background-color: {{ $del->rejected_quantity > 0 ? '#ef4444' : ($del->isReturReceipt() ? '#f59e0b' : '#10b981') }}; border: 1px solid #1e293b;"></div>
+                                                            
+                                                            <div class="d-flex align-items-center justify-content-between mb-1">
+                                                                <span class="text-info font-weight-bold" style="font-size: 0.72rem;">{{ $del->delivery_date->format('d/m/Y') }}</span>
+                                                                @if($del->isReturReceipt())
+                                                                    <span class="badge badge-warning py-0 px-1" style="font-size: 0.58rem; font-weight: 700; border-radius: 4px;"><i class="fas fa-undo mr-1"></i>Retur</span>
                                                                 @endif
+                                                            </div>
+
+                                                            <div class="d-flex flex-wrap align-items-center mb-1" style="gap: 6px;">
+                                                                @if($del->received_quantity > 0)
+                                                                    <span class="text-success" style="font-weight: 600;"><i class="fas fa-check-circle mr-1"></i>Diterima: {{ (float)$del->received_quantity }}</span>
+                                                                @endif
+                                                                @if($del->rejected_quantity > 0)
+                                                                    <span class="text-danger" style="font-weight: 600;"><i class="fas fa-times-circle mr-1"></i>Ditolak: {{ (float)$del->rejected_quantity }}</span>
+                                                                @endif
+                                                            </div>
+
+                                                            <!-- Rejection Reason Speech Bubble / Callout -->
+                                                            @if($del->rejected_quantity > 0 && $del->rejection_reason)
+                                                                <div class="p-2 rounded mt-1 mb-1 border" style="background-color: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.15) !important; color: #f87171; line-height: 1.2;">
+                                                                    <strong class="d-block" style="font-size: 0.6rem; text-transform: uppercase; opacity: 0.8;"><i class="fas fa-exclamation-triangle mr-1"></i>Alasan Ditolak:</strong>
+                                                                    {{ $del->rejection_reason }}
+                                                                </div>
                                                             @endif
+
                                                             @if($del->notes)
-                                                                <span class="text-muted pl-3 d-block" style="font-size: 0.65rem; line-height: 1.2;"><i class="fas fa-comment-alt mr-1"></i>{{ $del->notes }}</span>
+                                                                <div class="p-2 rounded mt-1 mb-1" style="background-color: rgba(255, 255, 255, 0.03); color: #cbd5e1; line-height: 1.2; border: 1px solid rgba(255, 255, 255, 0.05);">
+                                                                    <strong class="d-block" style="font-size: 0.6rem; text-transform: uppercase; opacity: 0.8;"><i class="fas fa-comment-alt mr-1"></i>Catatan:</strong>
+                                                                    {{ $del->notes }}
+                                                                </div>
                                                             @endif
+
+                                                            <!-- Attachment Badge -->
                                                             @if($del->attachment_path)
-                                                                <div class="pl-3 mt-1">
-                                                                    <a href="{{ asset('storage/' . $del->attachment_path) }}" class="text-blue-400 preview-attachment" data-url="{{ asset('storage/' . $del->attachment_path) }}" data-filename="{{ basename($del->attachment_path) }}">
-                                                                        <i class="fas fa-paperclip"></i> View File
+                                                                <div class="mt-1">
+                                                                    <a href="{{ asset('storage/' . $del->attachment_path) }}" 
+                                                                       class="d-inline-flex align-items-center px-2 py-0.5 rounded text-info preview-attachment" 
+                                                                       data-url="{{ asset('storage/' . $del->attachment_path) }}" 
+                                                                       data-filename="{{ basename($del->attachment_path) }}"
+                                                                       style="background: rgba(59,130,246,0.1); border: 1px solid rgba(59,130,246,0.2); text-decoration: none; font-size: 0.62rem; gap: 4px; transition: all 0.2s;">
+                                                                        <i class="fas fa-paperclip"></i>
+                                                                        <span>View File</span>
                                                                     </a>
                                                                 </div>
                                                             @endif
+
+                                                            <div class="text-muted mt-1" style="font-size: 0.62rem; opacity: 0.7;">
+                                                                <i class="fas fa-user-edit mr-1"></i>{{ $del->receiver->name ?? 'System' }}
+                                                            </div>
                                                         </div>
                                                     @endforeach
                                                 </div>
