@@ -1042,6 +1042,23 @@
             </a>
 
             @can('view pr')
+            @php
+                $rejectedCount = \App\Models\PurchaseRequest::where('user_id', Auth::id())
+                    ->whereHas('items', function ($q) {
+                        $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc']);
+                    })->count();
+
+                $returQuery = \App\Models\PrItemDelivery::where('rejected_quantity', '>', 0)
+                    ->whereNull('retur_for_delivery_id');
+                if (!Auth::user()->hasAnyRole(['superadmin', 'procurement', 'procurement_holding'])) {
+                    $returQuery->whereHas('prItem.purchaseRequest', function($q) {
+                        $q->where('user_id', Auth::id());
+                    });
+                }
+                $unresolvedReturCount = $returQuery->where(function($q) {
+                    $q->whereRaw('rejected_quantity > (SELECT COALESCE(SUM(children.received_quantity), 0) FROM pr_item_deliveries AS children WHERE children.retur_for_delivery_id = pr_item_deliveries.id)');
+                })->count();
+            @endphp
             <div class="drawer-section-label">Purchase</div>
             @can('create pr')
             <a href="{{ route('purchase-requests.create') }}" class="drawer-sub-link">
@@ -1061,6 +1078,15 @@
             </a>
             <a href="{{ route('purchase-requests.rejected') }}" class="drawer-sub-link">
                 <i class="fas fa-exclamation-circle text-danger"></i> Needs Revision
+                @if($rejectedCount > 0)
+                    <span class="badge badge-danger float-right mt-1">{{ $rejectedCount }}</span>
+                @endif
+            </a>
+            <a href="{{ route('purchase-requests.deliveries.rejected') }}" class="drawer-sub-link">
+                <i class="fas fa-undo text-warning"></i> Kedatangan Ditolak
+                @if($unresolvedReturCount > 0)
+                    <span class="badge badge-warning float-right mt-1">{{ $unresolvedReturCount }}</span>
+                @endif
             </a>
             @endcan
 
@@ -1172,12 +1198,31 @@
                                         ->whereHas('items', function ($q) {
                                             $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc']);
                                         })->count();
+
+                                    $returQuery = \App\Models\PrItemDelivery::where('rejected_quantity', '>', 0)
+                                        ->whereNull('retur_for_delivery_id');
+                                    if (!Auth::user()->hasAnyRole(['superadmin', 'procurement', 'procurement_holding'])) {
+                                        $returQuery->whereHas('prItem.purchaseRequest', function($q) {
+                                            $q->where('user_id', Auth::id());
+                                        });
+                                    }
+                                    $unresolvedReturCount = $returQuery->where(function($q) {
+                                        $q->whereRaw('rejected_quantity > (SELECT COALESCE(SUM(children.received_quantity), 0) FROM pr_item_deliveries AS children WHERE children.retur_for_delivery_id = pr_item_deliveries.id)');
+                                    })->count();
                                 @endphp
                                 <li>
                                     <a href="{{ route('purchase-requests.rejected') }}" class="dropdown-item">
                                         <i class="fas fa-exclamation-circle mr-2 text-danger"></i> Needs Revision
                                         @if($rejectedCount > 0)
                                             <span class="badge badge-danger float-right mt-1">{{ $rejectedCount }}</span>
+                                        @endif
+                                    </a>
+                                </li>
+                                <li>
+                                    <a href="{{ route('purchase-requests.deliveries.rejected') }}" class="dropdown-item">
+                                        <i class="fas fa-undo mr-2 text-warning"></i> Kedatangan Ditolak
+                                        @if($unresolvedReturCount > 0)
+                                            <span class="badge badge-warning float-right mt-1">{{ $unresolvedReturCount }}</span>
                                         @endif
                                     </a>
                                 </li>

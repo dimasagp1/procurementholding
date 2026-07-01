@@ -12,6 +12,7 @@ class PrItemDelivery extends Model
 
     protected $fillable = [
         'pr_item_id',
+        'retur_for_delivery_id',
         'received_quantity',
         'rejected_quantity',
         'delivery_date',
@@ -33,5 +34,29 @@ class PrItemDelivery extends Model
     public function receiver()
     {
         return $this->belongsTo(User::class, 'received_by');
+    }
+
+    public function returForDelivery()
+    {
+        return $this->belongsTo(PrItemDelivery::class, 'retur_for_delivery_id');
+    }
+
+    public function returReceipts()
+    {
+        return $this->hasMany(PrItemDelivery::class, 'retur_for_delivery_id');
+    }
+
+    public function isReturReceipt()
+    {
+        return !is_null($this->retur_for_delivery_id);
+    }
+
+    public function getUnresolvedRejectedQuantityAttribute()
+    {
+        if ($this->rejected_quantity <= 0) {
+            return 0;
+        }
+        $receivedReplacement = $this->returReceipts()->sum('received_quantity');
+        return max(0, (float) $this->rejected_quantity - (float) $receivedReplacement);
     }
 }

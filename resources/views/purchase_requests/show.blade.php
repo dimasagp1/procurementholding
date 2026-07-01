@@ -964,6 +964,9 @@
                                                             <li class="list-group-item" style="background-color: transparent; border-color: rgba(255,255,255,0.1);">
                                                                 <div class="d-flex justify-content-between align-items-center">
                                                                     <div>
+                                                                        @if($delivery->isReturReceipt())
+                                                                            <span class="badge badge-warning mr-1"><i class="fas fa-undo"></i> Penerimaan Retur</span>
+                                                                        @endif
                                                                         @if($delivery->received_quantity > 0)
                                                                             <span class="badge badge-success mr-1">Diterima: {{ $delivery->received_quantity }} {{ $item->uom }}</span>
                                                                         @endif
@@ -973,6 +976,11 @@
                                                                     </div>
                                                                     <small class="text-muted">{{ $delivery->delivery_date->format('d M Y') }}</small>
                                                                 </div>
+                                                                @if($delivery->isReturReceipt() && $delivery->returForDelivery)
+                                                                    <div class="mt-1 small text-info">
+                                                                        <i class="fas fa-link mr-1"></i> Mengganti Barang Ditolak Tgl {{ $delivery->returForDelivery->delivery_date->format('d/m/Y') }}
+                                                                    </div>
+                                                                @endif
                                                                 @if($delivery->notes)
                                                                     <div class="mt-1 small text-gray-400"><i class="fas fa-info-circle mr-1"></i><strong>Catatan:</strong> {{ $delivery->notes }}</div>
                                                                 @endif
@@ -1018,8 +1026,13 @@
                                                 </div>
                                                 <div class="modal-body">
                                                     @php
-                                                        $otherDeliveriesTotal = $item->deliveries->where('id', '!=', $delivery->id)->sum('received_quantity');
-                                                        $maxAllowed = $item->quantity - $otherDeliveriesTotal;
+                                                        if ($delivery->isReturReceipt()) {
+                                                            $otherReturTotal = $delivery->returForDelivery->returReceipts->where('id', '!=', $delivery->id)->sum('received_quantity');
+                                                            $maxAllowed = $delivery->returForDelivery->rejected_quantity - $otherReturTotal;
+                                                        } else {
+                                                            $otherDeliveriesTotal = $item->deliveries->where('id', '!=', $delivery->id)->sum('received_quantity');
+                                                            $maxAllowed = $item->quantity - $otherDeliveriesTotal;
+                                                        }
                                                     @endphp
                                                     <div class="form-row">
                                                         <div class="col-md-6 form-group">

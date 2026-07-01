@@ -69,6 +69,20 @@
                         ->whereHas('items', function($q) {
                             $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc']);
                         })->count();
+
+                    // Calculate unresolved retur count
+                    $returQuery = \App\Models\PrItemDelivery::where('rejected_quantity', '>', 0)
+                        ->whereNull('retur_for_delivery_id');
+                    
+                    if (!Auth::user()->hasAnyRole(['superadmin', 'procurement', 'procurement_holding'])) {
+                        $returQuery->whereHas('prItem.purchaseRequest', function($q) {
+                            $q->where('user_id', Auth::id());
+                        });
+                    }
+
+                    $unresolvedReturCount = $returQuery->where(function($q) {
+                        $q->whereRaw('rejected_quantity > (SELECT COALESCE(SUM(children.received_quantity), 0) FROM pr_item_deliveries AS children WHERE children.retur_for_delivery_id = pr_item_deliveries.id)');
+                    })->count();
                 @endphp
                 <li class="nav-item">
                     <a href="{{ route('purchase-requests.rejected') }}" class="nav-link {{ request()->routeIs('purchase-requests.rejected') ? 'active' : '' }}">
@@ -77,6 +91,17 @@
                             Needs Revision
                             @if($rejectedCount > 0)
                                 <span class="badge badge-danger right">{{ $rejectedCount }}</span>
+                            @endif
+                        </p>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ route('purchase-requests.deliveries.rejected') }}" class="nav-link {{ request()->routeIs('purchase-requests.deliveries.rejected') ? 'active' : '' }}">
+                        <i class="nav-icon fas fa-undo text-warning"></i>
+                        <p>
+                            Kedatangan Ditolak
+                            @if($unresolvedReturCount > 0)
+                                <span class="badge badge-warning right">{{ $unresolvedReturCount }}</span>
                             @endif
                         </p>
                     </a>

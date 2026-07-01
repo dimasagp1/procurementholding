@@ -1767,8 +1767,13 @@ class PurchaseRequestController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $otherDeliveriesTotal = $item->deliveries()->where('id', '!=', $delivery->id)->sum('received_quantity');
-        $maxAllowed = $item->quantity - $otherDeliveriesTotal;
+        if ($delivery->isReturReceipt()) {
+            $otherReturTotal = $delivery->returForDelivery->returReceipts()->where('id', '!=', $delivery->id)->sum('received_quantity');
+            $maxAllowed = $delivery->returForDelivery->rejected_quantity - $otherReturTotal;
+        } else {
+            $otherDeliveriesTotal = $item->deliveries()->where('id', '!=', $delivery->id)->sum('received_quantity');
+            $maxAllowed = $item->quantity - $otherDeliveriesTotal;
+        }
 
         $request->validate([
             'received_quantity' => 'required|numeric|min:0|max:' . $maxAllowed,
@@ -1804,14 +1809,14 @@ class PurchaseRequestController extends Controller
 
         $delivery->update($updateData);
 
-        $newTotal = $otherDeliveriesTotal + $request->received_quantity;
+        $totalReceived = $item->deliveries()->sum('received_quantity');
 
         // Revert status to ordered if it was delivered but total is now less
-        if ($newTotal < $item->quantity && $item->status === 'delivered') {
+        if ($totalReceived < $item->quantity && $item->status === 'delivered') {
             $item->update(['status' => 'ordered', 'delivered_at' => null]);
         }
         // Advance to delivered if it reaches total and currently ordered
-        elseif ($newTotal >= $item->quantity && $item->status === 'ordered') {
+        elseif ($totalReceived >= $item->quantity && $item->status === 'ordered') {
             $item->update(['status' => 'delivered', 'delivered_at' => now()]);
             $item->purchaseRequest->user->notify(new ItemDeliveredNotification($item));
             $this->checkAndAdvancePrStatus($item->purchaseRequest);
@@ -2377,6 +2382,103 @@ class PurchaseRequestController extends Controller
         }
 
         return redirect()->back()->with('error', 'Gagal mengirim email: ' . implode(', ', $errors));
+    }
+
+    public function rejectedDeliveries(Request $request)
+    {
+        $this->authorize('view pr');
+        $user = Auth::user();
+
+        // Get deliveries with rejected_quantity > 0 and retur_for_delivery_id IS NULL (original rejections)
+        $query = PrItemDelivery::with(['prItem.purchaseRequest.user', 'prItem.purchaseRequest.department', 'receiver'])
+            ->where('rejected_quantity', '>', 0)
+            ->whereNull('retur_for_delivery_id');
+
+        // Apply filters
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->whereHas('prItem.purchaseRequest', function($subQ) use ($search) {
+                    $subQ->where('pr_number', 'like', "%{$search}%");
+                })
+                ->orWhereHas('prItem', function($subQ) use ($search) {
+                    $subQ->where('item_name', 'like', "%{$search}%")
+                         ->orWhere('po_number', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        // Filter based on user roles if not superadmin/procurement
+        if (!$user->hasAnyRole(['superadmin', 'procurement', 'procurement_holding'])) {
+            $query->whereHas('prItem.purchaseRequest', function($subQ) use ($user) {
+                $subQ->where('user_id', $user->id);
+            });
+        }
+
+        $deliveries = $query->orderBy('delivery_date', 'desc')->paginate(10)->withQueryString();
+        $title = "Rejected Deliveries / Retur Vendor";
+
+        return view('purchase_requests.rejected_deliveries', compact('deliveries', 'title'));
+    }
+
+    public function storeReturReceipt(Request $request, PrItemDelivery $delivery)
+    {
+        $user = Auth::user();
+        $item = $delivery->prItem;
+
+        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
+        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isSuperadmin = $user->hasRole('superadmin');
+
+        if (!$isProc && !$isProcHolding && !$isSuperadmin) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $unresolved = $delivery->unresolved_rejected_quantity;
+
+        $request->validate([
+            'received_quantity' => 'required|numeric|min:0|max:' . $unresolved,
+            'rejected_quantity' => 'required|numeric|min:0',
+            'delivery_date' => 'required|date',
+            'notes' => 'nullable|string|max:500',
+            'rejection_reason' => 'nullable|string|max:500',
+            'delivery_attachment' => 'nullable|file|max:5120'
+        ]);
+
+        if ($request->received_quantity + $request->rejected_quantity <= 0) {
+            return redirect()->back()->withErrors(['received_quantity' => 'Total kuantitas (Diterima + Ditolak) harus lebih besar dari 0.']);
+        }
+
+        if ($request->rejected_quantity > 0 && empty($request->rejection_reason)) {
+            return redirect()->back()->withErrors(['rejection_reason' => 'Alasan penolakan wajib diisi jika ada barang yang ditolak.']);
+        }
+
+        $attachmentPath = null;
+        if ($request->hasFile('delivery_attachment')) {
+            $attachmentPath = $request->file('delivery_attachment')->store('deliveries', 'public');
+        }
+
+        $item->deliveries()->create([
+            'received_quantity' => $request->received_quantity,
+            'rejected_quantity' => $request->rejected_quantity,
+            'delivery_date' => $request->delivery_date,
+            'notes' => $request->notes,
+            'rejection_reason' => $request->rejected_quantity > 0 ? $request->rejection_reason : null,
+            'attachment_path' => $attachmentPath,
+            'received_by' => Auth::id(),
+            'retur_for_delivery_id' => $delivery->id
+        ]);
+
+        // Check if item is now fully delivered
+        $totalReceived = $item->deliveries()->sum('received_quantity');
+        if ($totalReceived >= $item->quantity && !in_array($item->status, ['completed', 'delivered'])) {
+            $item->update(['status' => 'delivered', 'delivered_at' => now()]);
+            // Notify requester
+            $item->purchaseRequest->user->notify(new ItemDeliveredNotification($item));
+            $this->checkAndAdvancePrStatus($item->purchaseRequest);
+        }
+
+        return redirect()->back()->with('success', 'Penerimaan barang retur berhasil dicatat.');
     }
 }
 

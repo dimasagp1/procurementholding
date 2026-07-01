@@ -76,6 +76,8 @@ Route::middleware('auth')->group(function () {
     Route::post('purchase-requests/{item}/deliveries', [PurchaseRequestController::class, 'storeDelivery'])->name('purchase-requests.store-delivery');
     Route::put('purchase-requests/deliveries/{delivery}', [PurchaseRequestController::class, 'updateDelivery'])->name('purchase-requests.update-delivery');
     Route::delete('purchase-requests/deliveries/{delivery}', [PurchaseRequestController::class, 'destroyDelivery'])->name('purchase-requests.destroy-delivery');
+    Route::get('purchase-requests/deliveries/rejected', [PurchaseRequestController::class, 'rejectedDeliveries'])->name('purchase-requests.deliveries.rejected');
+    Route::post('purchase-requests/deliveries/{delivery}/receive-retur', [PurchaseRequestController::class, 'storeReturReceipt'])->name('purchase-requests.deliveries.store-retur-receipt');
 
     // Reports
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
