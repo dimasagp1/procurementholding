@@ -376,22 +376,41 @@
                                                 {{ ucfirst(str_replace('_', ' ', $item->status)) }}
                                             </span>
                                         </td>
-                                        <td data-label="QTY Masuk">
+                                        <td data-label="QTY Masuk" style="min-width: 210px;">
                                             @if($item->deliveries->isNotEmpty())
-                                                <div style="text-align:right;">
-                                                @foreach($item->deliveries as $delivery)
-                                                    <div class="mb-1">
-                                                        @if($delivery->received_quantity > 0)
-                                                            <span class="text-success font-weight-bold" style="font-size:0.8rem;" title="Diterima">+{{ (float)$delivery->received_quantity }} {{ $item->uom }}</span>
-                                                        @endif
-                                                        @if($delivery->rejected_quantity > 0)
-                                                            <span class="text-danger font-weight-bold" style="font-size:0.8rem;" title="Ditolak: {{ (float)$delivery->rejected_quantity }} {{ $item->uom }} (Alasan: {{ $delivery->rejection_reason }})">
-                                                                -{{ (float)$delivery->rejected_quantity }} {{ $item->uom }} (Ditolak)
-                                                            </span>
-                                                        @endif
-                                                        <span class="text-muted" style="font-size:0.72rem;"> — {{ $delivery->delivery_date->format('d/m/Y') }}</span>
-                                                    </div>
-                                                @endforeach
+                                                <div class="d-flex flex-column" style="gap: 4px;">
+                                                    @foreach($item->deliveries as $delivery)
+                                                        <div class="d-flex flex-column p-2 rounded mb-1 text-left" 
+                                                             style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.05); font-size: 0.72rem; gap: 4px;">
+                                                            
+                                                            <div class="d-flex align-items-center justify-content-between flex-wrap" style="gap: 4px;">
+                                                                <!-- Quantity tag -->
+                                                                <div class="d-flex align-items-center flex-wrap" style="gap: 6px;">
+                                                                    @if($delivery->received_quantity > 0)
+                                                                        <span class="text-success font-weight-bold" title="Diterima"><i class="fas fa-check-circle mr-1"></i>+{{ (float)$delivery->received_quantity }} {{ $item->uom }}</span>
+                                                                    @endif
+                                                                    @if($delivery->rejected_quantity > 0)
+                                                                        <span class="text-danger font-weight-bold" title="Ditolak">
+                                                                            <i class="fas fa-times-circle mr-1"></i>-{{ (float)$delivery->rejected_quantity }} {{ $item->uom }} <span style="font-size: 0.65rem; opacity: 0.85;">(Ditolak)</span>
+                                                                        </span>
+                                                                    @endif
+                                                                    @if($delivery->isReturReceipt())
+                                                                        <span class="badge badge-warning py-0 px-1" style="font-size: 0.55rem; font-weight: 700; border-radius: 4px;" title="Penerimaan Retur"><i class="fas fa-undo mr-1"></i>Retur</span>
+                                                                    @endif
+                                                                </div>
+
+                                                                <!-- Date tag -->
+                                                                <span class="text-muted" style="font-size:0.65rem; white-space: nowrap;"><i class="far fa-calendar-alt mr-1"></i>{{ $delivery->delivery_date->format('d/m/Y') }}</span>
+                                                            </div>
+                                                            
+                                                            <!-- Tooltip or text for reason if rejected -->
+                                                            @if($delivery->rejected_quantity > 0 && $delivery->rejection_reason)
+                                                                <div class="w-100 p-1.5 rounded text-danger mt-1" style="background: rgba(239, 68, 68, 0.07); font-size: 0.65rem; border: 1px solid rgba(239, 68, 68, 0.12); line-height: 1.2;">
+                                                                    <strong>Alasan:</strong> {{ $delivery->rejection_reason }}
+                                                                </div>
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
                                                 </div>
                                             @else
                                                 <span class="text-muted">-</span>
