@@ -357,13 +357,6 @@
                                     @endif
                                     <td data-label="Due Date">{{ $item->due_date ?? '-' }}</td>
                                     <td data-label="Rencana Tiba">
-                                        @php
-                                            $isProc = Auth::user()->hasRole('procurement');
-                                            $isProcHolding = Auth::user()->hasRole('procurement_holding') && $purchaseRequest->pr_type === 'operational';
-                                            $isSuperadmin = Auth::user()->hasRole('superadmin');
-                                            $canInputArrival = ($isProc && $purchaseRequest->pr_type !== 'operational') || $isProcHolding || $isSuperadmin;
-                                        @endphp
-
                                         @if($item->deliveryPlans->isNotEmpty())
                                             <div class="mb-2" style="min-width: 130px;">
                                                 @foreach($item->deliveryPlans as $index => $plan)
@@ -385,25 +378,8 @@
                                                     </div>
                                                 @endforeach
                                             </div>
-                                            @if($canInputArrival)
-                                                 @if($item->deliveryPlans->where('is_active', true)->isEmpty())
-                                                     <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
-                                                         <i class="fas fa-calendar-plus"></i> Input Rencana
-                                                     </button>
-                                                 @else
-                                                     <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
-                                                         <i class="fas fa-edit"></i> Reschedule
-                                                     </button>
-                                                 @endif
-                                            @endif
                                         @else
-                                            @if($canInputArrival && in_array($item->status, ['ordered', 'delivered']))
-                                                <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
-                                                    <i class="fas fa-calendar-plus"></i> Input Rencana
-                                                </button>
-                                            @else
-                                                <span class="text-muted text-xs">-</span>
-                                            @endif
+                                            <span class="text-muted text-xs">-</span>
                                         @endif
                                     </td>
                                     <td data-label="Status" class="approval-history">
@@ -569,6 +545,19 @@
                                                          @endif
                                                     </button>
                                                 @endif
+
+                                                @if($canInputArrival)
+                                                    @if($item->deliveryPlans->where('is_active', true)->isEmpty())
+                                                        <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
+                                                            <i class="fas fa-calendar-plus"></i> Input Rencana
+                                                        </button>
+                                                    @else
+                                                        <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
+                                                            <i class="fas fa-edit"></i> Reschedule
+                                                        </button>
+                                                    @endif
+                                                @endif
+
                                                 @if($remainingQty > 0 && $item->deliveryPlans->where('is_active', true)->isNotEmpty() && $canInputArrival)
                                                 <button type="button" class="btn btn-primary btn-xs mt-2 w-100" data-toggle="modal" data-target="#deliveryModal-{{ $item->id }}">
                                                     <i class="fas fa-truck-loading"></i> Input Kedatangan Real
