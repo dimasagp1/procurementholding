@@ -385,9 +385,15 @@
                                                 $canInputArrival = ($isProc && $purchaseRequest->pr_type !== 'operational') || $isProcHolding || $isSuperadmin;
                                             @endphp
                                             @if($canInputArrival)
-                                                <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
-                                                    <i class="fas fa-edit"></i> Reschedule
-                                                </button>
+                                                 @if($item->deliveryPlans->where('is_active', true)->isEmpty())
+                                                     <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
+                                                         <i class="fas fa-calendar-plus"></i> Input Rencana
+                                                     </button>
+                                                 @else
+                                                     <button type="button" class="btn btn-warning btn-xs w-100 mt-1" style="font-size: 0.7rem;" data-toggle="modal" data-target="#rescheduleModal-{{ $item->id }}">
+                                                         <i class="fas fa-edit"></i> Reschedule
+                                                     </button>
+                                                 @endif
                                             @endif
                                         @else
                                             <span class="text-muted text-xs">-</span>
@@ -548,7 +554,12 @@
                                             @if(in_array($item->status, ['ordered', 'delivered']))
                                                 @if(!$item->po_number && ($isProc || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
-                                                        <i class="fas fa-file-invoice"></i> Input PO & Rencana
+                                                        <i class="fas fa-file-invoice"></i> 
+                                                        @if($purchaseRequest->pr_type === 'operational' && !$isProcHolding && !$isSuperadmin)
+                                                            Input PO
+                                                         @else
+                                                            Input PO & Rencana
+                                                         @endif
                                                     </button>
                                                 @endif
                                                 @if($remainingQty > 0 && $item->deliveryPlans->where('is_active', true)->isNotEmpty() && $canInputArrival)
@@ -700,14 +711,14 @@
                     @method('PUT')
                     <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
                         <div class="modal-header" style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <h5 class="modal-title">Reschedule Kedatangan: {{ $item->item_name }}</h5>
+                            <h5 class="modal-title">{{ $item->deliveryPlans->where('is_active', true)->isEmpty() ? 'Input Rencana Kedatangan' : 'Reschedule Kedatangan' }}: {{ $item->item_name }}</h5>
                             <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
                         </div>
                         <div class="modal-body text-left">
                             <p class="mb-3 text-info">Total kuantitas harus sama dengan pesanan ({{ $item->quantity }} {{ $item->uom }}).</p>
                             
                             <div class="form-group border border-secondary p-3 rounded mt-3 position-relative">
-                                <label class="text-gray-300 mb-2 font-weight-bold">Ubah Jumlah Rencana Kedatangan</label>
+                                <label class="text-gray-300 mb-2 font-weight-bold">{{ $item->deliveryPlans->where('is_active', true)->isEmpty() ? 'Jumlah Rencana Kedatangan' : 'Ubah Jumlah Rencana Kedatangan' }}</label>
                                 <div class="d-flex gap-2 mb-3">
                                     <button type="button" class="btn btn-outline-info btn-sm flex-fill btn-plan-count" data-count="1" data-target="#reschedule-container-{{ $item->id }}">1 X</button>
                                     <button type="button" class="btn btn-outline-info btn-sm flex-fill btn-plan-count" data-count="2" data-target="#reschedule-container-{{ $item->id }}">2 X</button>
@@ -715,7 +726,7 @@
                                 </div>
                                 
                                 <div id="reschedule-container-{{ $item->id }}">
-                                    @foreach($item->deliveryPlans->where('is_active', true) as $index => $plan)
+                                    @forelse($item->deliveryPlans->where('is_active', true) as $index => $plan)
                                         <div class="border border-warning p-3 rounded mb-3 position-relative" style="background-color: rgba(255, 193, 7, 0.05); z-index: 10;">
                                             <span class="badge badge-warning position-absolute" style="top: -10px; left: 10px; font-size: 0.85rem;">Kedatangan Saat Ini {{ $loop->iteration }}</span>
                                             
@@ -739,13 +750,18 @@
                                                 @endif
                                             </div>
                                         </div>
-                                    @endforeach
+                                    @empty
+                                        <div class="text-center py-4 text-muted border border-dashed rounded" style="border-color: rgba(255,255,255,0.1) !important;">
+                                            <i class="fas fa-calendar-alt fa-2x mb-2 text-gray-500"></i>
+                                            <p class="mb-0 text-sm">Belum ada rencana kedatangan. Silakan klik tombol di atas (1X, 2X, atau 3X) untuk membuat rencana kedatangan.</p>
+                                        </div>
+                                    @endforelse
                                 </div>
                             </div>
                         </div>
                         <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
                             <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
-                            <button type="submit" class="btn btn-warning">Simpan Reschedule</button>
+                            <button type="submit" class="btn btn-warning">{{ $item->deliveryPlans->where('is_active', true)->isEmpty() ? 'Simpan Rencana Kedatangan' : 'Simpan Reschedule' }}</button>
                         </div>
                     </div>
                 </form>
@@ -826,6 +842,7 @@
                                                         </div>
                                                     </div>
                                                     
+                                                    @if($purchaseRequest->pr_type !== 'operational' || $isProcHolding || $isSuperadmin)
                                                     <div class="form-group border border-secondary p-3 rounded mt-3 position-relative">
                                                         <label class="text-gray-300 mb-2 font-weight-bold">Jumlah Rencana Kedatangan</label>
                                                         <div class="d-flex gap-2 mb-3">
@@ -838,6 +855,7 @@
                                                             <!-- Will be populated by JS -->
                                                         </div>
                                                     </div>
+                                                    @endif
                                                 </div>
                                                 <div class="modal-footer" style="border-top: 1px solid rgba(255,255,255,0.05);">
                                                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>

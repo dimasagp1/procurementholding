@@ -1429,10 +1429,10 @@ class PurchaseRequestController extends Controller
             $request->validate([
                 'po_number' => 'nullable|string|max:255',
                 'actual_price' => 'required|numeric|min:0',
-                'planned_dates' => 'required|array|min:1',
-                'planned_dates.*' => 'required|date',
-                'planned_quantities' => 'required|array|min:1',
-                'planned_quantities.*' => 'required|numeric|min:0.01',
+                'planned_dates' => 'nullable|array',
+                'planned_dates.*' => 'required_with:planned_dates|date',
+                'planned_quantities' => 'required_with:planned_dates|array',
+                'planned_quantities.*' => 'required_with:planned_dates|numeric|min:0.01',
                 'planned_notes' => 'nullable|array',
                 'planned_notes.*' => 'nullable|string',
                 'planned_attachments' => 'nullable|array',
@@ -1440,9 +1440,11 @@ class PurchaseRequestController extends Controller
                 'vendor_name' => 'nullable|string|max:255'
             ]);
 
-            $totalPlanned = array_sum($request->planned_quantities);
-            if ($totalPlanned > $item->quantity) {
-                return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
+            if ($request->filled('planned_quantities')) {
+                $totalPlanned = array_sum($request->planned_quantities);
+                if ($totalPlanned > $item->quantity) {
+                    return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
+                }
             }
 
             // Kirim data ke Odoo dan buat PO otomatis jika bertipe Operational
@@ -1489,7 +1491,7 @@ class PurchaseRequestController extends Controller
 
         $item->update($updateData);
 
-        if ($request->status === 'ordered') {
+        if ($request->status === 'ordered' && $request->filled('planned_dates')) {
             // Save Delivery Plans
             foreach ($request->planned_dates as $index => $date) {
                 $attachmentPath = null;
