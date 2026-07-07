@@ -1629,6 +1629,7 @@ class PurchaseRequestController extends Controller
         }
 
         $activePlans = $item->deliveryPlans()->where('is_active', true)->get();
+        $hasExistingActivePlans = $activePlans->isNotEmpty();
         $submittedPlans = [];
 
         foreach ($request->planned_dates as $index => $date) {
@@ -1689,13 +1690,14 @@ class PurchaseRequestController extends Controller
                     'planned_quantity' => $submitted['qty'],
                     'notes' => $submitted['notes'],
                     'attachment_path' => $attachmentPath,
-                    'is_rescheduled' => true,
+                    'is_rescheduled' => $hasExistingActivePlans,
                     'is_active' => true
                 ]);
             }
         }
 
-        return redirect()->back()->with('success', 'Rencana kedatangan berhasil di-reschedule.');
+        $message = $hasExistingActivePlans ? 'Rencana kedatangan berhasil di-reschedule.' : 'Rencana kedatangan berhasil disimpan.';
+        return redirect()->back()->with('success', $message);
     }
 
     public function storeDelivery(Request $request, PrItem $item)
