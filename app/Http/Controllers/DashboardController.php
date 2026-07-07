@@ -106,7 +106,7 @@ class DashboardController extends Controller
 
     private function getSuperadminChartData()
     {
-        $prs = PurchaseRequest::all();
+        $prs = PurchaseRequest::with('items')->get();
         return [
             'status_distribution' => $this->formatStatusDistribution($prs),
             'monthly_trends' => $this->getMonthlyTrends(),
@@ -148,7 +148,7 @@ class DashboardController extends Controller
 
     private function getUserChartData($user)
     {
-        $prs = PurchaseRequest::where('user_id', $user->id)->get();
+        $prs = PurchaseRequest::where('user_id', $user->id)->with('items')->get();
         return [
             'status_distribution' => $this->formatStatusDistribution($prs),
             'monthly_trends' => $this->getMonthlyTrends($user->id),
@@ -157,7 +157,7 @@ class DashboardController extends Controller
 
     private function getManagerChartData($user)
     {
-        $prs = PurchaseRequest::all();
+        $prs = PurchaseRequest::with('items')->get();
         return [
             'status_distribution' => $this->formatStatusDistribution($prs),
             'monthly_trends' => $this->getMonthlyTrends(),

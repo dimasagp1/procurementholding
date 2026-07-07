@@ -2134,21 +2134,21 @@
         });
     });
 
-    // Hide loading screen once page fully loads
-    if (document.readyState === 'complete') {
+    // Hide loading screen once DOM is interactive / fully loaded
+    function triggerHideLoading() {
         const barEl = document.querySelector('.loader-bar');
         if (barEl) barEl.style.width = '100%';
         setTimeout(() => {
             window.hideGlobalLoading();
         }, 300);
+    }
+
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+        triggerHideLoading();
     } else {
-        window.addEventListener('load', () => {
-            const barEl = document.querySelector('.loader-bar');
-            if (barEl) barEl.style.width = '100%';
-            setTimeout(() => {
-                window.hideGlobalLoading();
-            }, 400);
-        });
+        document.addEventListener('DOMContentLoaded', triggerHideLoading);
+        // Fallback for safety
+        window.addEventListener('load', triggerHideLoading);
     }
 
     // Handle browser back-forward cache loaded pages
