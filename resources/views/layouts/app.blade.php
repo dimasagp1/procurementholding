@@ -2070,12 +2070,23 @@
     };
 
     document.addEventListener('DOMContentLoaded', function() {
+        function shouldShowLoading(form) {
+            if (form.classList.contains('no-loading')) {
+                return false;
+            }
+            const methodInput = form.querySelector('input[name="_method"]');
+            if (methodInput && methodInput.value.toUpperCase() === 'DELETE') {
+                return false;
+            }
+            return true;
+        }
+
         // Intercept standard form submit events
         document.addEventListener('submit', function(e) {
             if (e.target && e.target.tagName === 'FORM') {
                 const method = (e.target.getAttribute('method') || 'GET').toUpperCase();
                 // Don't show spinner on GET forms (usually searches/filters)
-                if (method !== 'GET') {
+                if (method !== 'GET' && shouldShowLoading(e.target)) {
                     window.showGlobalLoading('MEMPROSES TRANSAKSI', 'Mohon tidak menyegarkan halaman ini...');
                 }
             }
@@ -2085,7 +2096,7 @@
         const originalSubmit = HTMLFormElement.prototype.submit;
         HTMLFormElement.prototype.submit = function() {
             const method = (this.getAttribute('method') || 'GET').toUpperCase();
-            if (method !== 'GET') {
+            if (method !== 'GET' && shouldShowLoading(this)) {
                 window.showGlobalLoading('MEMPROSES TRANSAKSI', 'Mohon tidak menyegarkan halaman ini...');
             }
             originalSubmit.apply(this, arguments);
