@@ -80,7 +80,7 @@
                                 <div class="locked-items-section mb-5">
                                     @foreach($lockedItems as $item)
                                         @php $index = $items->search($item); @endphp
-                                        <div class="card mb-3 border-light shadow-sm" style="background-color: rgba(255,255,255,0.02)">
+                                        <div class="card mb-3 border-light shadow-sm locked-item-row" style="background-color: rgba(255,255,255,0.02)">
                                             <div class="card-body py-3">
                                                 <div class="d-flex justify-content-between align-items-center mb-2">
                                                     <h6 class="mb-0 font-weight-bold">
@@ -127,11 +127,9 @@
                                                         <span class="badge badge-danger ml-2">Revision Required</span>
                                                     @endif
                                                 </h5>
-                                                @if($purchaseRequest->status === 'draft')
-                                                    <button type="button" class="btn btn-danger btn-xs remove-item" data-index="{{ $index }}">
-                                                        <i class="fas fa-times"></i> Remove
-                                                    </button>
-                                                @endif
+                                                <button type="button" class="btn btn-danger btn-xs remove-item" data-index="{{ $index }}">
+                                                    <i class="fas fa-times"></i> Remove
+                                                </button>
                                             </div>
                                             
                                             <input type="hidden" name="items[{{ $index }}][id]" value="{{ $item->id }}">
@@ -518,13 +516,15 @@
 
 
             
-                                    container.addEventListener('click', function(e) {
+            container.addEventListener('click', function(e) {
                 if (e.target.closest('.remove-item')) {
                     const row = e.target.closest('.item-row');
-                    const allRows = container.querySelectorAll('.item-row');
-                    if (allRows.length > 1) {
+                    const form = document.getElementById('purchase-request-form');
+                    const lockedCount = form.querySelectorAll('.locked-item-row').length;
+                    const editableCount = form.querySelectorAll('.item-row').length;
+                    if (lockedCount + editableCount > 1) {
                         row.remove();
-                        } else {
+                    } else {
                         alert('At least one item is required.');
                     }
                 }

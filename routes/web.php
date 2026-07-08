@@ -66,10 +66,12 @@ Route::middleware('auth')->group(function () {
     Route::post('purchase-requests/{item}/reject', [PurchaseRequestController::class, 'rejectItem'])->name('purchase-requests.reject-item');
     Route::post('purchase-requests/{item}/send-note', [PurchaseRequestController::class, 'sendValidationNote'])->name('purchase-requests.send-note');
     Route::post('purchase-requests/{item}/revise', [PurchaseRequestController::class, 'reviseItem'])->name('purchase-requests.revise-item');
+    Route::delete('purchase-requests/items/{item}', [PurchaseRequestController::class, 'deleteRejectedItem'])->name('purchase-requests.delete-rejected-item');
     Route::put('purchase-requests/items/{item}/quantity', [PurchaseRequestController::class, 'updateItemQuantity'])->name('purchase-requests.update-item-quantity');
     Route::get('purchase-requests/{purchaseRequest}/preview', [PurchaseRequestController::class, 'preview'])->name('purchase-requests.preview');
     Route::get('purchase-requests/{purchaseRequest}/export', [PurchaseRequestController::class, 'export'])->name('purchase-requests.export');
     Route::post('purchase-requests/{item}/update-status', [PurchaseRequestController::class, 'updateItemStatus'])->name('purchase-requests.update-item-status');
+    Route::post('purchase-requests/{item}/toggle-flags', [PurchaseRequestController::class, 'toggleItemFlags'])->name('purchase-requests.toggle-item-flags');
     Route::post('purchase-requests/{item}/sync-to-odoo', [PurchaseRequestController::class, 'syncItemToOdoo'])->name('purchase-requests.sync-to-odoo');
     Route::get('odoo/vendors', [PurchaseRequestController::class, 'getOdooVendors'])->name('api.odoo.vendors');
     Route::put('purchase-requests/{item}/delivery-plans', [PurchaseRequestController::class, 'updateDeliveryPlans'])->name('purchase-requests.update-delivery-plans');

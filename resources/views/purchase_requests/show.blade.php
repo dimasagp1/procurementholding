@@ -183,7 +183,7 @@
                                     <th>Item Name</th>
                                     <th>Keterangan</th>
                                     <th>Qty/UOM</th>
-                                    @if(Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
+                                    @if(Auth::user()->hasRole(['procurement', 'procurement_holding', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
                                         <th>Harga</th>
                                     @endif
                                     <th>Due Date</th>
@@ -193,8 +193,13 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                @foreach($purchaseRequest->items as $item)
-                                <tr>
+                                 @foreach($purchaseRequest->items as $item)
+                                    @php
+                                        if (Auth::user()->hasRole('procurement_holding') && !$item->is_incoming) {
+                                            continue;
+                                        }
+                                    @endphp
+                                 <tr>
                                     <td data-label="Item">
                                         <strong>{{ $item->item_name }}</strong>
                                         @if($item->purpose)
@@ -223,7 +228,7 @@
                                             <span>{{ (float)$item->quantity }} {{ $item->uom }}</span>
                                         </div>
 
-                                        @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                                        @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('procurement_holding') || Auth::user()->hasRole('superadmin')))
                                             <button type="button" class="btn btn-outline-warning btn-xs ml-2 d-inline-block" data-toggle="modal" data-target="#editQtyModal-{{ $item->id }}">
                                                 <i class="fas fa-edit"></i>
                                             </button>
@@ -322,9 +327,9 @@
                                             @endif
                                         @endif
                                     </td>
-                                    @if(Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
+                                    @if(Auth::user()->hasRole(['procurement', 'procurement_holding', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
                                         <td data-label="Harga">
-                                            @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                                            @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('procurement_holding') || Auth::user()->hasRole('superadmin')))
                                                 <div class="form-group mb-0">
                                                     <div class="input-group input-group-sm" style="min-width: 140px; max-width: 180px;">
                                                         <div class="input-group-prepend">
@@ -372,6 +377,14 @@
                                             @elseif($item->status === 'pending_estimate')
                                                 <span class="text-warning text-xs font-italic"><i class="fas fa-hourglass-half mr-1"></i> Menunggu Estimasi</span>
                                                 <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
+                                                <div class="d-flex align-items-center flex-wrap mt-1" style="gap: 5px;">
+                                                    <span class="badge {{ $item->rekap_po_odoo ? 'badge-danger' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
+                                                        {{ $item->rekap_po_odoo ? 'PO Odoo' : 'No PO Odoo' }}
+                                                    </span>
+                                                    <span class="badge {{ $item->is_incoming ? 'badge-success' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
+                                                        {{ $item->is_incoming ? 'Incoming' : 'No Incoming' }}
+                                                    </span>
+                                                </div>
                                             @else
                                                 <div class="text-xs">
                                                     <span class="text-gray-400">Est:</span> <strong>Rp {{ number_format($item->estimated_price, 0, ',', '.') }}</strong>
@@ -381,6 +394,48 @@
                                                         <div class="mt-1 border-top border-secondary pt-1">
                                                             <span class="text-success">Aktual:</span> <strong>Rp {{ number_format($item->actual_price, 0, ',', '.') }}</strong>
                                                             <br><span class="text-success small">(Total: Rp {{ number_format($item->actual_total_price, 0, ',', '.') }})</span>
+                                                        </div>
+                                                    @endif
+                                                    
+                                                    @if(!Auth::user()->hasRole('procurement_holding'))
+                                                        <div class="mt-2 pt-1 border-top border-secondary border-dashed" style="border-top-style: dashed !important;">
+                                                            @if(Auth::user()->hasAnyRole(['procurement', 'superadmin']))
+                                                                <div class="d-flex align-items-center justify-content-between flex-wrap" style="gap: 8px;">
+                                                                    <div class="custom-control custom-checkbox custom-checkbox-danger" style="user-select: none;">
+                                                                        <input type="checkbox" 
+                                                                                name="rekap_po_odoo" 
+                                                                                id="toggle_rekap_odoo-{{ $item->id }}" 
+                                                                                class="custom-control-input flag-toggle-checkbox" 
+                                                                                value="1" 
+                                                                                data-item-id="{{ $item->id }}"
+                                                                                {{ $item->rekap_po_odoo ? 'checked' : '' }}>
+                                                                        <label class="custom-control-label text-danger text-xs font-weight-bold" for="toggle_rekap_odoo-{{ $item->id }}" style="cursor: pointer; font-size: 0.7rem;">
+                                                                            PO Odoo
+                                                                        </label>
+                                                                    </div>
+                                                                    <div class="custom-control custom-checkbox custom-checkbox-success" style="user-select: none;">
+                                                                        <input type="checkbox" 
+                                                                                name="is_incoming" 
+                                                                                id="toggle_incoming-{{ $item->id }}" 
+                                                                                class="custom-control-input flag-toggle-checkbox" 
+                                                                                value="1" 
+                                                                                data-item-id="{{ $item->id }}"
+                                                                                {{ $item->is_incoming ? 'checked' : '' }}>
+                                                                        <label class="custom-control-label text-success text-xs font-weight-bold" for="toggle_incoming-{{ $item->id }}" style="cursor: pointer; font-size: 0.7rem;">
+                                                                            Incoming
+                                                                        </label>
+                                                                    </div>
+                                                                </div>
+                                                            @else
+                                                                <div class="d-flex align-items-center flex-wrap" style="gap: 5px;">
+                                                                    <span class="badge {{ $item->rekap_po_odoo ? 'badge-danger' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
+                                                                        {{ $item->rekap_po_odoo ? 'PO Odoo' : 'No PO Odoo' }}
+                                                                    </span>
+                                                                    <span class="badge {{ $item->is_incoming ? 'badge-success' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
+                                                                        {{ $item->is_incoming ? 'Incoming' : 'No Incoming' }}
+                                                                    </span>
+                                                                </div>
+                                                            @endif
                                                         </div>
                                                     @endif
                                                 </div>
@@ -517,7 +572,7 @@
                                              $isProc = Auth::user()->hasRole('procurement');
                                              $isProcHolding = Auth::user()->hasRole('procurement_holding');
                                              $isSuperadmin = Auth::user()->hasRole('superadmin');
-                                             $canInputArrival = ($isProc || $isProcHolding || $isSuperadmin) && $item->is_incoming;
+                                             $canInputArrival = ($isProcHolding || $isSuperadmin) && $item->is_incoming;
                                             
                                              if ($purchaseRequest->status !== 'draft') {
                                                 if ($isOm && $item->status == 'pending' && $purchaseRequest->pr_type === 'operational') { $canApprove = true; $canSendNote = true; }
@@ -543,6 +598,16 @@
                                             <button type="button" class="btn btn-primary btn-xs mt-1" data-toggle="modal" data-target="#noteModal-{{ $item->id }}">
                                                 Send Note / Reply
                                             </button>
+                                        @endif
+
+                                        @if(str_starts_with($item->status, 'rejected') && (Auth::id() == $purchaseRequest->user_id || Auth::user()->hasRole('superadmin')))
+                                            <form action="{{ route('purchase-requests.delete-rejected-item', $item) }}" method="POST" class="d-inline form-confirm" data-message="Apakah Anda yakin ingin menghapus item reject ini?">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="btn btn-danger btn-xs" title="Hapus Item Reject">
+                                                    <i class="fas fa-trash"></i> Hapus
+                                                </button>
+                                            </form>
                                         @endif
 
                                         @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
@@ -675,7 +740,7 @@
                         </table>
                     </div>
 
-                    @if($purchaseRequest->items->where('status', 'pending_estimate')->isNotEmpty() && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('superadmin')))
+                    @if($purchaseRequest->items->where('status', 'pending_estimate')->isNotEmpty() && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('procurement_holding') || Auth::user()->hasRole('superadmin')))
                         <div class="mt-4 p-3 rounded d-flex justify-content-between align-items-center flex-wrap" style="background-color: rgba(245, 158, 11, 0.05); border: 1px solid rgba(245, 158, 11, 0.2); gap: 10px;">
                             <div class="text-sm text-gray-300">
                                 <i class="fas fa-info-circle text-warning mr-1"></i>
@@ -698,12 +763,16 @@
     <!-- Modals moved outside table to prevent HTML form stripping -->
     @foreach($purchaseRequest->items as $item)
         @php
+            if (Auth::user()->hasRole('procurement_holding') && !$item->is_incoming) {
+                continue;
+            }
             $isProc = Auth::user()->hasRole('procurement');
+            $isProcHolding = Auth::user()->hasRole('procurement_holding');
             $isSuperadmin = Auth::user()->hasRole('superadmin');
             $remainingQty = $item->quantity - $item->received_quantity;
         @endphp
 
-        @if($item->status === 'pending_estimate' && ($isProc || $isSuperadmin))
+        @if($item->status === 'pending_estimate' && ($isProc || $isProcHolding || $isSuperadmin))
         <!-- Edit Qty Modal -->
         <div class="modal fade" id="editQtyModal-{{ $item->id }}" tabindex="-1">
             <div class="modal-dialog">
@@ -870,7 +939,7 @@
                                                         </div>
                                                     </div>
                                                     
-                                                    @if($item->is_incoming)
+                                                    @if($item->is_incoming && (Auth::user()->hasRole('procurement_holding') || Auth::user()->hasRole('superadmin')))
                                                     <div class="form-group border border-secondary p-3 rounded mt-3 position-relative">
                                                         <label class="text-gray-300 mb-2 font-weight-bold">Jumlah Rencana Kedatangan</label>
                                                         <div class="d-flex gap-2 mb-3">
@@ -1798,6 +1867,73 @@
                     }
                 })
                 .catch(err => console.error('Failed to fetch Odoo vendors:', err));
+
+            // Handle Flag Toggling via AJAX
+            $(document).on('change', '.flag-toggle-checkbox', function() {
+                const $checkbox = $(this);
+                const itemId = $checkbox.data('item-id');
+                
+                const $poOdooCheckbox = $(`#toggle_rekap_odoo-${itemId}`);
+                const $incomingCheckbox = $(`#toggle_incoming-${itemId}`);
+                
+                const poValue = $poOdooCheckbox.is(':checked') ? 1 : 0;
+                const incomingValue = $incomingCheckbox.is(':checked') ? 1 : 0;
+                
+                // Disable inputs temporarily
+                $poOdooCheckbox.prop('disabled', true);
+                $incomingCheckbox.prop('disabled', true);
+                
+                fetch(`/purchase-requests/${itemId}/toggle-flags`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                    },
+                    body: JSON.stringify({
+                        rekap_po_odoo: poValue,
+                        is_incoming: incomingValue
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    $poOdooCheckbox.prop('disabled', false);
+                    $incomingCheckbox.prop('disabled', false);
+                    
+                    if (data.success) {
+                        const Toast = Swal.mixin({
+                            toast: true,
+                            position: 'top-end',
+                            showConfirmButton: false,
+                            timer: 2000,
+                            timerProgressBar: true
+                        });
+                        Toast.fire({
+                            icon: 'success',
+                            title: data.message || 'Tanda PO/Incoming berhasil diperbarui.'
+                        });
+                    } else {
+                        // Revert check state on failure
+                        $checkbox.prop('checked', !$checkbox.is(':checked'));
+                        Swal.fire({
+                            icon: 'error',
+                            title: 'Gagal',
+                            text: data.message || 'Gagal memperbarui tanda.'
+                        });
+                    }
+                })
+                .catch(error => {
+                    $poOdooCheckbox.prop('disabled', false);
+                    $incomingCheckbox.prop('disabled', false);
+                    $checkbox.prop('checked', !$checkbox.is(':checked'));
+                    
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: 'Terjadi kesalahan sistem.'
+                    });
+                });
+            });
         });
     </script>
 

@@ -685,7 +685,25 @@ class PurchaseRequestController extends Controller
                     'items.*.attachment' => 'nullable|file|max:10240',
                 ]);
 
+                // Delete editable items that were removed
+                $submittedItemIds = collect($request->items)->pluck('id')->filter()->toArray();
+                $editableItemIds = $purchaseRequest->items()
+                    ->where(function($q) {
+                        $q->where('status', 'pending')
+                          ->orWhere('status', 'pending_estimate')
+                          ->orWhere('status', 'like', 'rejected_%');
+                    })
+                    ->pluck('id')
+                    ->toArray();
+
+                $itemsToDeleteIds = array_diff($editableItemIds, $submittedItemIds);
+
+                if (!empty($itemsToDeleteIds)) {
+                    PrItem::whereIn('id', $itemsToDeleteIds)->delete();
+                }
+
                 $totalAmount = 0;
+                $hasRevisedItems = false;
 
                 foreach ($request->items as $itemData) {
                     $item = PrItem::where('id', $itemData['id'])
@@ -700,6 +718,7 @@ class PurchaseRequestController extends Controller
                         $canEdit = $isRejected || $isPendingEstimate || $isPending;
 
                         if ($canEdit) {
+                            $hasRevisedItems = true;
                             $finalItemName = $itemData['item_name'] === 'other' ? $itemData['manual_item_name'] : $itemData['item_name'];
                             $finalUom = $itemData['uom'] === 'other' ? $itemData['manual_uom'] : $itemData['uom'];
                             $newTotalPrice = (float) $item->estimated_price * (float) $itemData['quantity'];
@@ -736,15 +755,21 @@ class PurchaseRequestController extends Controller
                     'total_amount' => $totalAmount,
                 ]);
 
-                // Reset approval records since we went back to pending_estimate
-                Approval::where('purchase_request_id', $purchaseRequest->id)->delete();
+                if ($hasRevisedItems) {
+                    // Reset approval records since we went back to pending_estimate
+                    Approval::where('purchase_request_id', $purchaseRequest->id)->delete();
 
-                // Notify Procurement of the update
-                $procurements = User::role(['procurement', 'superadmin'])->get();
-                $filtered = $procurements->reject(fn($u) => $u->id == auth()->id());
-                if ($filtered->isNotEmpty()) {
-                    Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
-                    Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                    // Notify Procurement of the update
+                    $procurements = User::role(['procurement', 'superadmin'])->get();
+                    $filtered = $procurements->reject(fn($u) => $u->id == auth()->id());
+                    if ($filtered->isNotEmpty()) {
+                        Notification::send($filtered, new PrSubmittedNotification($purchaseRequest));
+                        Notification::send($filtered, new QueuedMailWrapper(new PrSubmittedNotification($purchaseRequest)));
+                    }
+                } else {
+                    // Recalculate status since rejected items were removed and only approved/locked items remain
+                    $purchaseRequest->update(['status' => 'pending']);
+                    $this->checkAndAdvancePrStatus($purchaseRequest);
                 }
             }
 
@@ -904,12 +929,17 @@ class PurchaseRequestController extends Controller
 
 
 
+        $approvalType = $item->purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status);
+        if ($approvalType === 'proc') {
+            $approvalType = 'procurement';
+        }
+
         Approval::create([
             'purchase_request_id' => $item->purchase_request_id,
             'pr_item_id' => $item->id,
             'approver_id' => $user->id,
             'approver_role' => $approverRole,
-            'approval_type' => $item->purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status),
+            'approval_type' => $approvalType,
             'status' => 'rejected',
             'notes' => $request->reject_reason,
             'approved_at' => now(),
@@ -1066,12 +1096,17 @@ class PurchaseRequestController extends Controller
                     'rejected_at' => now(),
                 ]);
 
+                $approvalType = $purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status);
+                if ($approvalType === 'proc') {
+                    $approvalType = 'procurement';
+                }
+
                 Approval::create([
                     'purchase_request_id' => $item->purchase_request_id,
                     'pr_item_id' => $item->id,
                     'approver_id' => $user->id,
                     'approver_role' => $approverRole,
-                    'approval_type' => $purchaseRequest->pr_type === 'non_operational' && $approverRole === 'manager_fat' ? 'fatm' : str_replace('rejected_', '', $status),
+                    'approval_type' => $approvalType,
                     'status' => 'rejected',
                     'notes' => $request->reject_reason,
                     'approved_at' => now(),
@@ -1358,6 +1393,49 @@ class PurchaseRequestController extends Controller
         }
     }
 
+    public function deleteRejectedItem(PrItem $item)
+    {
+        $user = Auth::user();
+        $pr = $item->purchaseRequest;
+
+        // Only the owner of the PR or superadmin can delete the rejected item
+        if ($user->id !== $pr->user_id && !$user->hasRole('superadmin')) {
+            return redirect()->back()->with('error', 'Unauthorized action.');
+        }
+
+        // Only rejected items can be deleted this way
+        if (!str_starts_with($item->status, 'rejected')) {
+            return redirect()->back()->with('error', 'Only rejected items can be deleted.');
+        }
+
+        \DB::beginTransaction();
+        try {
+            // Delete the item
+            $item->delete();
+
+            // Check if PR has no items left
+            if ($pr->items()->count() === 0) {
+                $pr->delete();
+                \DB::commit();
+                return redirect()->route('purchase-requests.index')->with('success', 'Purchase Request has been deleted since all items were removed.');
+            }
+
+            // Recalculate total amount
+            $totalAmount = $pr->items()->sum('total_price');
+            $pr->update(['total_amount' => $totalAmount]);
+
+            // Recalculate PR status
+            $this->checkAndAdvancePrStatus($pr);
+
+            \DB::commit();
+            return redirect()->back()->with('success', 'Rejected item deleted successfully.');
+        } catch (\Exception $e) {
+            \DB::rollBack();
+            \Log::error('Failed to delete rejected item: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'Failed to delete item: ' . $e->getMessage());
+        }
+    }
+
 
     public function destroy(PurchaseRequest $purchaseRequest)
     {
@@ -1502,7 +1580,7 @@ class PurchaseRequestController extends Controller
 
         $item->update($updateData);
 
-        if ($request->status === 'ordered' && $request->filled('planned_dates')) {
+        if ($request->status === 'ordered' && $request->filled('planned_dates') && ($user->hasRole('procurement_holding') || $user->hasRole('superadmin'))) {
             // Save Delivery Plans
             foreach ($request->planned_dates as $index => $date) {
                 $attachmentPath = null;
@@ -2037,7 +2115,7 @@ class PurchaseRequestController extends Controller
     public function saveEstimates(Request $request, PurchaseRequest $purchaseRequest)
     {
         $user = Auth::user();
-        if (!$user->hasRole('procurement') && !$user->hasRole('superadmin')) {
+        if (!$user->hasRole('procurement') && !$user->hasRole('procurement_holding') && !$user->hasRole('superadmin')) {
             return redirect()->back()->with('error', 'Unauthorized action.');
         }
 
@@ -2508,6 +2586,33 @@ class PurchaseRequestController extends Controller
         }
 
         return redirect()->back()->with('success', 'Penerimaan barang retur berhasil dicatat.');
+    }
+
+    public function toggleItemFlags(Request $request, PrItem $item)
+    {
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['procurement', 'procurement_holding', 'superadmin'])) {
+            if ($request->wantsJson()) {
+                return response()->json(['success' => false, 'message' => 'Unauthorized action.'], 403);
+            }
+            abort(403, 'Unauthorized action.');
+        }
+
+        $item->update([
+            'rekap_po_odoo' => $request->boolean('rekap_po_odoo'),
+            'is_incoming' => $request->boolean('is_incoming'),
+        ]);
+
+        if ($request->wantsJson()) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Tanda PO/Incoming berhasil diperbarui.',
+                'rekap_po_odoo' => $item->rekap_po_odoo,
+                'is_incoming' => $item->is_incoming
+            ]);
+        }
+
+        return redirect()->back()->with('success', 'Tanda PO/Incoming berhasil diperbarui.');
     }
 }
 
