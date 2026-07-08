@@ -610,7 +610,7 @@
                                             </form>
                                         @endif
 
-                                        @if(($isProc || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
+                                        @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
                                             @if($isProc || $isSuperadmin)
                                                 <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                     @csrf
