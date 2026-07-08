@@ -332,6 +332,38 @@
                                                         </div>
                                                         <input type="number" step="0.01" name="estimates[{{ $item->id }}][estimated_price]" class="form-control form-control-sm estimate-price-input text-white" placeholder="Harga Estimasi" value="{{ $item->estimated_price ?: '' }}" required data-id="{{ $item->id }}" data-qty="{{ $item->quantity }}" data-purpose="{{ $item->purpose }}" form="estimates-submit-form" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">
                                                     </div>
+                                                    
+                                                    <!-- Integrated Checklists (Odoo PO & Incoming) -->
+                                                    <div class="d-flex mt-2 align-items-center justify-content-between" style="min-width: 140px; max-width: 180px;">
+                                                        <!-- Odoo PO Checklist (Red Accent) -->
+                                                        <div class="custom-control custom-checkbox custom-checkbox-danger" style="user-select: none;">
+                                                            <input type="checkbox" 
+                                                                   name="estimates[{{ $item->id }}][rekap_po_odoo]" 
+                                                                   id="rekap_odoo-{{ $item->id }}" 
+                                                                   class="custom-control-input" 
+                                                                   value="1" 
+                                                                   form="estimates-submit-form"
+                                                                   {{ $item->rekap_po_odoo ? 'checked' : '' }}>
+                                                            <label class="custom-control-label text-danger text-xs font-weight-bold" for="rekap_odoo-{{ $item->id }}" style="cursor: pointer;">
+                                                                PO Odoo
+                                                            </label>
+                                                        </div>
+                                                        
+                                                        <!-- Incoming Checklist (Green Accent) -->
+                                                        <div class="custom-control custom-checkbox custom-checkbox-success" style="user-select: none;">
+                                                            <input type="checkbox" 
+                                                                   name="estimates[{{ $item->id }}][is_incoming]" 
+                                                                   id="incoming-{{ $item->id }}" 
+                                                                   class="custom-control-input" 
+                                                                   value="1" 
+                                                                   form="estimates-submit-form"
+                                                                   {{ $item->is_incoming ? 'checked' : '' }}>
+                                                            <label class="custom-control-label text-success text-xs font-weight-bold" for="incoming-{{ $item->id }}" style="cursor: pointer;">
+                                                                Incoming
+                                                            </label>
+                                                        </div>
+                                                    </div>
+
                                                     <div class="text-xs text-muted mt-1 total-estimate-display" id="total-estimate-{{ $item->id }}" style="font-size: 0.7rem;">
                                                         Total: Rp {{ number_format($item->quantity * ($item->estimated_price ?: 0), 0, ',', '.') }}
                                                     </div>
@@ -483,9 +515,9 @@
                                              $isFat = Auth::user()->hasRole('manager_fat');
                                              $isGm = Auth::user()->hasRole('general_manager');
                                              $isProc = Auth::user()->hasRole('procurement');
-                                             $isProcHolding = Auth::user()->hasRole('procurement_holding') && $purchaseRequest->pr_type === 'operational';
+                                             $isProcHolding = Auth::user()->hasRole('procurement_holding');
                                              $isSuperadmin = Auth::user()->hasRole('superadmin');
-                                             $canInputArrival = ($isProc && $purchaseRequest->pr_type !== 'operational') || $isProcHolding || $isSuperadmin;
+                                             $canInputArrival = ($isProc || $isProcHolding || $isSuperadmin) && $item->is_incoming;
                                             
                                              if ($purchaseRequest->status !== 'draft') {
                                                 if ($isOm && $item->status == 'pending' && $purchaseRequest->pr_type === 'operational') { $canApprove = true; $canSendNote = true; }
@@ -514,7 +546,7 @@
                                         @endif
 
                                         @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
-                                            @if($isProc || $isSuperadmin)
+                                            @if($isProc || $isProcHolding || $isSuperadmin)
                                                 <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                     @csrf
                                                     <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
@@ -535,14 +567,14 @@
                                             @endif
                                             
                                             @if(in_array($item->status, ['ordered', 'delivered']))
-                                                @if(!$item->po_number && ($isProc || $isSuperadmin))
+                                                @if(!$item->po_number && ($isProc || $isProcHolding || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> 
-                                                        @if($purchaseRequest->pr_type === 'operational' && !$isProcHolding && !$isSuperadmin)
-                                                            Input PO
-                                                         @else
+                                                        @if($item->is_incoming)
                                                             Input PO & Rencana
-                                                         @endif
+                                                        @else
+                                                            Input PO
+                                                        @endif
                                                     </button>
                                                 @endif
 
@@ -575,7 +607,7 @@
                                         @if($item->po_number)
                                             <div class="mt-2 text-info text-xs font-weight-bold d-flex align-items-center justify-content-between flex-wrap">
                                                 <span>PO: {{ $item->po_number }}</span>
-                                                @if(($isProc || $isSuperadmin) && $purchaseRequest->pr_type === 'operational' && in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                @if(($isProc || $isProcHolding || $isSuperadmin) && $item->rekap_po_odoo && in_array($item->status, ['ordered', 'delivered', 'completed']))
                                                     <button type="button" class="btn btn-outline-warning btn-xs ml-1" data-toggle="modal" data-target="#syncOdooModal-{{ $item->id }}" title="Kirim/Sync ulang ke Odoo">
                                                         <i class="fas fa-sync-alt"></i> Kirim ke Odoo
                                                     </button>
@@ -797,14 +829,14 @@
                                                     </div>
 
                                                     <div class="form-group">
-                                                        @if($purchaseRequest->pr_type === 'operational')
+                                                        @if($item->rekap_po_odoo)
                                                             <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis dari Odoo)</label>
                                                         @else
                                                             <label class="text-gray-300">NO. PO (Kosongkan untuk generate otomatis manual)</label>
                                                         @endif
                                                         <input type="text" name="po_number" class="form-control" value="{{ old('po_number', $item->po_number) }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
-                                                    @if($purchaseRequest->pr_type === 'operational')
+                                                    @if($item->rekap_po_odoo)
                                                     <div class="form-group">
                                                         <label class="text-gray-300">Nama Vendor</label>
                                                         <input type="text" name="vendor_name" class="form-control" placeholder="Default Vendor" value="{{ old('vendor_name') }}" list="odoo-vendors-list" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
@@ -838,7 +870,7 @@
                                                         </div>
                                                     </div>
                                                     
-                                                    @if($purchaseRequest->pr_type !== 'operational' || $isProcHolding || $isSuperadmin)
+                                                    @if($item->is_incoming)
                                                     <div class="form-group border border-secondary p-3 rounded mt-3 position-relative">
                                                         <label class="text-gray-300 mb-2 font-weight-bold">Jumlah Rencana Kedatangan</label>
                                                         <div class="d-flex gap-2 mb-3">
@@ -1172,6 +1204,16 @@
                                     @endforeach
 
 <style>
+        /* Custom Checkbox Colors */
+        .custom-checkbox-danger .custom-control-input:checked ~ .custom-control-label::before {
+            background-color: #dc3545 !important;
+            border-color: #dc3545 !important;
+        }
+        .custom-checkbox-success .custom-control-input:checked ~ .custom-control-label::before {
+            background-color: #28a745 !important;
+            border-color: #28a745 !important;
+        }
+
         @media (max-width: 768px) {
             .mobile-modal-dialog {
                 margin: 0.5rem;

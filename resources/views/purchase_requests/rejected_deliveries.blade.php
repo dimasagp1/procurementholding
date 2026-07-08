@@ -98,8 +98,8 @@
                                     
                                     // Permissions
                                     $user = Auth::user();
-                                    $isProc = $user->hasRole('procurement') && $pr->pr_type !== 'operational';
-                                    $isProcHolding = $user->hasRole('procurement_holding') && $pr->pr_type === 'operational';
+                                    $isProc = $user->hasRole('procurement');
+                                    $isProcHolding = $user->hasRole('procurement_holding');
                                     $isSuperadmin = $user->hasRole('superadmin');
                                     $canManage = $isProc || $isProcHolding || $isSuperadmin;
                                 @endphp

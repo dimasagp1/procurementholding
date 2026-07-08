@@ -472,6 +472,8 @@ class PurchaseRequestController extends Controller
                     'attachment' => $attachmentPath,
                     'status' => $isDraft ? 'pending' : 'pending_estimate',
                     'purpose' => $item['purpose'] ?? null,
+                    'rekap_po_odoo' => $request->pr_type === 'operational',
+                    'is_incoming' => $request->pr_type === 'operational',
                 ]);
             }
 
@@ -633,6 +635,8 @@ class PurchaseRequestController extends Controller
                             'attachment' => $attachmentPath,
                             'status' => 'pending',
                             'purpose' => $itemData['purpose'] ?? null,
+                            'rekap_po_odoo' => $purchaseRequest->pr_type === 'operational',
+                            'is_incoming' => $purchaseRequest->pr_type === 'operational',
                         ]);
                         $submittedItemIds[] = $newItem->id;
                     }
@@ -1451,7 +1455,7 @@ class PurchaseRequestController extends Controller
             $purchaseRequest = $item->purchaseRequest;
             $poNumber = null;
 
-            if ($purchaseRequest->pr_type === 'operational') {
+            if ($item->rekap_po_odoo) {
                 // Set temporary actual_price agar service menggunakan harga terbaru
                 $item->actual_price = $request->actual_price;
                 
@@ -1468,7 +1472,7 @@ class PurchaseRequestController extends Controller
                     \Log::warning("Gagal membuat PO di Odoo API, menggunakan fallback nomor PO manual.");
                 }
             } else {
-                // Non-operational: langsung gunakan nomor PO manual atau generate fallback
+                // Non-operational / no odoo sync: langsung gunakan nomor PO manual atau generate fallback
                 $poNumber = $request->po_number ?: 'PO-NONOP-' . date('Ymd') . '-' . $item->id;
             }
 
@@ -1476,7 +1480,14 @@ class PurchaseRequestController extends Controller
             $updateData['actual_price'] = $request->actual_price;
             $updateData['actual_total_price'] = $item->quantity * $request->actual_price;
             $updateData['ordered_at'] = now();
-            $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$poNumber}.";
+            
+            if (!$item->is_incoming) {
+                $updateData['status'] = 'completed';
+                $updateData['completed_at'] = now();
+                $msg = "Item '{$item->item_name}' telah dipesan dengan PO: {$poNumber} dan selesai diproses (Completed).";
+            } else {
+                $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$poNumber}.";
+            }
         } elseif ($request->status === 'approved_proc') {
             $updateData['processed_at'] = now();
             $msg = "Item '{$item->item_name}' telah disetujui (Approved).";
@@ -1553,8 +1564,8 @@ class PurchaseRequestController extends Controller
         $this->authorize('edit pr', $item->purchaseRequest);
         $purchaseRequest = $item->purchaseRequest;
 
-        if ($purchaseRequest->pr_type !== 'operational') {
-            return redirect()->back()->with('error', 'Hanya Purchase Request bertipe Operational yang dapat disinkronkan ke Odoo.');
+        if (!$item->rekap_po_odoo) {
+            return redirect()->back()->with('error', 'Item ini tidak ditandai untuk disinkronkan ke Odoo.');
         }
 
         $request->validate([
@@ -1602,12 +1613,16 @@ class PurchaseRequestController extends Controller
     public function updateDeliveryPlans(Request $request, PrItem $item)
     {
         $user = Auth::user();
-        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
-        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
 
         if (!$isProc && !$isProcHolding && !$isSuperadmin) {
-            abort(403, 'Unauthorized action. You are not allowed to update delivery plans for this type of PR.');
+            abort(403, 'Unauthorized action. You are not allowed to update delivery plans.');
+        }
+
+        if (!$item->is_incoming) {
+            return redirect()->back()->with('error', 'Item ini tidak ditandai memiliki kedatangan barang.');
         }
 
         $this->authorize('edit pr', $item->purchaseRequest);
@@ -1704,12 +1719,16 @@ class PurchaseRequestController extends Controller
     {
         // Only procurement (non-operational only), procurement_holding (operational only) or superadmin can add delivery
         $user = Auth::user();
-        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
-        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
 
         if (!$isProc && !$isProcHolding && !$isSuperadmin) {
             abort(403, 'Unauthorized action.');
+        }
+
+        if (!$item->is_incoming) {
+            return redirect()->back()->with('error', 'Item ini tidak ditandai memiliki kedatangan barang.');
         }
 
         $receivedSoFar = $item->received_quantity;
@@ -1763,8 +1782,8 @@ class PurchaseRequestController extends Controller
     {
         $user = Auth::user();
         $item = $delivery->prItem;
-        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
-        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
 
         if (!$isProc && !$isProcHolding && !$isSuperadmin) {
@@ -1833,8 +1852,8 @@ class PurchaseRequestController extends Controller
     {
         $user = Auth::user();
         $item = $delivery->prItem;
-        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
-        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
 
         if (!$isProc && !$isProcHolding && !$isSuperadmin) {
@@ -2025,6 +2044,8 @@ class PurchaseRequestController extends Controller
         $request->validate([
             'estimates' => 'required|array',
             'estimates.*.estimated_price' => 'required|numeric|min:0',
+            'estimates.*.rekap_po_odoo' => 'nullable|boolean',
+            'estimates.*.is_incoming' => 'nullable|boolean',
         ]);
 
         // Calculate purpose amounts for budget check
@@ -2039,7 +2060,9 @@ class PurchaseRequestController extends Controller
                 $itemsToUpdate[] = [
                     'item' => $item,
                     'estimated_price' => (float) $itemData['estimated_price'],
-                    'total_price' => $requestedAmount
+                    'total_price' => $requestedAmount,
+                    'rekap_po_odoo' => isset($itemData['rekap_po_odoo']),
+                    'is_incoming' => isset($itemData['is_incoming'])
                 ];
             }
         }
@@ -2068,6 +2091,8 @@ class PurchaseRequestController extends Controller
                 $item->update([
                     'estimated_price' => $data['estimated_price'],
                     'total_price' => $data['total_price'],
+                    'rekap_po_odoo' => $data['rekap_po_odoo'],
+                    'is_incoming' => $data['is_incoming'],
                     'status' => 'pending' // Update to pending to start manager approval
                 ]);
                 $totalAmount += $data['total_price'];
@@ -2430,8 +2455,8 @@ class PurchaseRequestController extends Controller
         $user = Auth::user();
         $item = $delivery->prItem;
 
-        $isProc = $user->hasRole('procurement') && $item->purchaseRequest->pr_type !== 'operational';
-        $isProcHolding = $user->hasRole('procurement_holding') && $item->purchaseRequest->pr_type === 'operational';
+        $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
 
         if (!$isProc && !$isProcHolding && !$isSuperadmin) {

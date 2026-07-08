@@ -32,7 +32,9 @@ class PrItem extends Model
         'revision_count',
         'ready_quantity',
         'po_number',
-        'purpose'
+        'purpose',
+        'rekap_po_odoo',
+        'is_incoming'
     ];
 
     protected $casts = [
@@ -44,7 +46,9 @@ class PrItem extends Model
         'processed_at' => 'datetime',
         'ordered_at' => 'datetime',
         'delivered_at' => 'datetime',
-        'completed_at' => 'datetime'
+        'completed_at' => 'datetime',
+        'rekap_po_odoo' => 'boolean',
+        'is_incoming' => 'boolean'
     ];
 
     public function purchaseRequest()
