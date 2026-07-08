@@ -923,6 +923,38 @@
                                                                style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
                                                     </div>
 
+                                                    @php
+                                                        $otherGroupableItems = $purchaseRequest->items->filter(function($other) use ($item) {
+                                                            return $other->id !== $item->id 
+                                                                && $other->status === 'approved_proc' 
+                                                                && $other->rekap_po_odoo === $item->rekap_po_odoo;
+                                                        });
+                                                    @endphp
+
+                                                    @if($otherGroupableItems->isNotEmpty())
+                                                    <div class="form-group border border-secondary p-3 rounded mt-3">
+                                                        <label class="text-gray-300 mb-2 font-weight-bold">Gabungkan Item Lain (Vendor Sama)</label>
+                                                        <p class="text-xs text-muted mb-2">Pilih item lain dari PR ini yang ingin dibeli dari vendor yang sama untuk digabungkan dalam 1 PO:</p>
+                                                        
+                                                        @foreach($otherGroupableItems as $otherItem)
+                                                            <div class="d-flex align-items-center mb-2 justify-content-between p-2 rounded" style="background-color: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); gap: 10px;">
+                                                                <div class="custom-control custom-checkbox" style="user-select: none;">
+                                                                    <input type="checkbox" name="group_items[]" value="{{ $otherItem->id }}" id="group_item-{{ $item->id }}-{{ $otherItem->id }}" class="custom-control-input" style="cursor: pointer;">
+                                                                    <label class="custom-control-label text-xs text-white" for="group_item-{{ $item->id }}-{{ $otherItem->id }}" style="cursor: pointer;">
+                                                                        <strong>{{ $otherItem->item_name }}</strong> (Qty: {{ (float)$otherItem->quantity }} {{ $otherItem->uom }})
+                                                                    </label>
+                                                                </div>
+                                                                <div class="input-group input-group-sm" style="width: 150px;">
+                                                                    <div class="input-group-prepend">
+                                                                        <span class="input-group-text bg-secondary text-white" style="font-size: 0.7rem;">Rp</span>
+                                                                    </div>
+                                                                    <input type="number" step="0.01" name="group_actual_prices[{{ $otherItem->id }}]" class="form-control form-control-sm text-white" placeholder="Harga Aktual" value="{{ $otherItem->estimated_price }}" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">
+                                                                </div>
+                                                            </div>
+                                                        @endforeach
+                                                    </div>
+                                                    @endif
+
                                                     <!-- Budget Calculation Row -->
                                                     <div class="form-row mt-3 mb-3 p-3 rounded" style="background-color: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); margin-left: 0; margin-right: 0;">
                                                         <div class="col-md-4 mb-2 mb-md-0">

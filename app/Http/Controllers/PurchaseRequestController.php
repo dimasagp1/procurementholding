@@ -1501,6 +1501,7 @@ class PurchaseRequestController extends Controller
     public function updateItemStatus(Request $request, PrItem $item, OdooService $odooService)
     {
         $this->authorize('edit pr', $item->purchaseRequest);
+        $user = Auth::user();
 
         $request->validate([
             'status' => 'required|in:approved_proc,ordered,delivered,completed'
@@ -1519,7 +1520,10 @@ class PurchaseRequestController extends Controller
                 'planned_notes.*' => 'nullable|string',
                 'planned_attachments' => 'nullable|array',
                 'planned_attachments.*' => 'nullable|file|max:5120',
-                'vendor_name' => 'nullable|string|max:255'
+                'vendor_name' => 'nullable|string|max:255',
+                'group_items' => 'nullable|array',
+                'group_items.*' => 'integer',
+                'group_actual_prices' => 'nullable|array',
             ]);
 
             if ($request->filled('planned_quantities')) {
@@ -1533,13 +1537,34 @@ class PurchaseRequestController extends Controller
             $purchaseRequest = $item->purchaseRequest;
             $poNumber = null;
 
+            // Collect all items to sync/group
+            $itemsToSync = [$item];
+            $groupedItems = [];
+
+            if ($request->has('group_items')) {
+                foreach ($request->group_items as $groupedId) {
+                    $gItem = PrItem::where('purchase_request_id', $purchaseRequest->id)
+                        ->where('status', 'approved_proc')
+                        ->find($groupedId);
+                    if ($gItem) {
+                        $gPrice = $request->input("group_actual_prices.{$groupedId}", $gItem->estimated_price) ?: 0;
+                        $gItem->actual_price = $gPrice;
+                        $itemsToSync[] = $gItem;
+                        $groupedItems[] = [
+                            'model' => $gItem,
+                            'actual_price' => $gPrice
+                        ];
+                    }
+                }
+            }
+
             if ($item->rekap_po_odoo) {
                 // Set temporary actual_price agar service menggunakan harga terbaru
                 $item->actual_price = $request->actual_price;
                 
                 $odooPo = $odooService->createPurchaseOrder(
                     $purchaseRequest, 
-                    [$item], 
+                    $itemsToSync, 
                     $request->vendor_name ?? 'Default Vendor'
                 );
 
@@ -1562,10 +1587,37 @@ class PurchaseRequestController extends Controller
             if (!$item->is_incoming) {
                 $updateData['status'] = 'completed';
                 $updateData['completed_at'] = now();
-                $msg = "Item '{$item->item_name}' telah dipesan dengan PO: {$poNumber} dan selesai diproses (Completed).";
             } else {
-                $msg = "Item '{$item->item_name}' sedang dalam proses pemesanan (Ordered) dengan PO: {$poNumber}.";
+                $updateData['status'] = 'ordered';
             }
+
+            // Update all grouped items as well
+            foreach ($groupedItems as $gData) {
+                $gModel = $gData['model'];
+                $gPrice = $gData['actual_price'];
+                $gUpdateData = [
+                    'po_number' => $poNumber,
+                    'actual_price' => $gPrice,
+                    'actual_total_price' => $gModel->quantity * $gPrice,
+                    'ordered_at' => now(),
+                ];
+                if (!$gModel->is_incoming) {
+                    $gUpdateData['status'] = 'completed';
+                    $gUpdateData['completed_at'] = now();
+                } else {
+                    $gUpdateData['status'] = 'ordered';
+                }
+                $gModel->update($gUpdateData);
+            }
+
+            // Construct notification message listing all processed items
+            $processedItemsNames = [$item->item_name];
+            foreach ($groupedItems as $gData) {
+                $processedItemsNames[] = $gData['model']->item_name;
+            }
+            $itemsStr = implode(', ', array_map(fn($name) => "'{$name}'", $processedItemsNames));
+            $msg = "Item {$itemsStr} telah dipesan dengan PO: {$poNumber}.";
+
         } elseif ($request->status === 'approved_proc') {
             $updateData['processed_at'] = now();
             $msg = "Item '{$item->item_name}' telah disetujui (Approved).";
