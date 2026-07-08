@@ -610,8 +610,8 @@
                                             </form>
                                         @endif
 
-                                        @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
-                                            @if($isProc || $isProcHolding || $isSuperadmin)
+                                        @if(($isProc || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
+                                            @if($isProc || $isSuperadmin)
                                                 <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                     @csrf
                                                     <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
@@ -632,7 +632,7 @@
                                             @endif
                                             
                                             @if(in_array($item->status, ['ordered', 'delivered']))
-                                                @if(!$item->po_number && ($isProc || $isProcHolding || $isSuperadmin))
+                                                @if(!$item->po_number && ($isProc || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> 
                                                         @if($item->is_incoming)
@@ -672,7 +672,7 @@
                                         @if($item->po_number)
                                             <div class="mt-2 text-info text-xs font-weight-bold d-flex align-items-center justify-content-between flex-wrap">
                                                 <span>PO: {{ $item->po_number }}</span>
-                                                @if(($isProc || $isProcHolding || $isSuperadmin) && $item->rekap_po_odoo && in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                @if(($isProc || $isSuperadmin) && $item->rekap_po_odoo && in_array($item->status, ['ordered', 'delivered', 'completed']))
                                                     <button type="button" class="btn btn-outline-warning btn-xs ml-1" data-toggle="modal" data-target="#syncOdooModal-{{ $item->id }}" title="Kirim/Sync ulang ke Odoo">
                                                         <i class="fas fa-sync-alt"></i> Kirim ke Odoo
                                                     </button>
