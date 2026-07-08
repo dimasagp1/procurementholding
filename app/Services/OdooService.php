@@ -183,7 +183,7 @@ class OdooService
 
             $orderLines[] = [0, 0, [
                 'product_id' => $productId,
-                'name' => $item->description ?: $item->item_name,
+                'name' => $item->item_name,
                 'product_qty' => (float) $item->quantity,
                 'price_unit' => (float) ($item->actual_price ?: $item->estimated_price),
                 'date_planned' => $datePlanned,
