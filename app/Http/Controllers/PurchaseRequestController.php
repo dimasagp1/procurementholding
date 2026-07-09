@@ -2234,8 +2234,11 @@ class PurchaseRequestController extends Controller
             $approverRole = $purchaseRequest->pr_type === 'non_operational' ? 'manager_fat' : 'operational_manager';
             $approvalType = $purchaseRequest->pr_type === 'non_operational' ? 'fatm' : 'om';
 
-            // Delete any existing approvals first (in case of a revision/resubmit)
-            Approval::where('purchase_request_id', $purchaseRequest->id)->delete();
+            // Delete only pending approvals without notes (preserve note history)
+            Approval::where('purchase_request_id', $purchaseRequest->id)
+                ->where('status', 'pending')
+                ->whereNull('notes')
+                ->delete();
 
             Approval::create([
                 'purchase_request_id' => $purchaseRequest->id,
