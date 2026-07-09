@@ -71,6 +71,17 @@
             /* Recent PR section stacks nicely */
             .recent-pr-row { flex-direction: column !important; }
         }
+        #monitoringTableWrapper {
+            max-height: 450px;
+            overflow-y: auto;
+        }
+        #monitoringTable thead th {
+            position: sticky;
+            top: 0;
+            background-color: #1e293b;
+            z-index: 10;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.05);
+        }
     </style>
 
     <!-- Small boxes (Stat box) -->
@@ -299,6 +310,15 @@
                     <h5 class="mb-0 font-weight-bold tracking-tight" style="color: #f8fafc; flex: 1 1 auto;">
                         <i class="fas fa-truck mr-2 text-info"></i> Monitoring Kedatangan Item PR
                     </h5>
+                    <button class="btn btn-link text-white-50 p-0 ml-2" 
+                            type="button" 
+                            data-toggle="collapse" 
+                            data-target="#monitoringCollapse" 
+                            aria-expanded="true" 
+                            aria-controls="monitoringCollapse"
+                            style="text-decoration: none; outline: none; box-shadow: none;">
+                        <i class="fas fa-chevron-up" id="monitoringCollapseIcon"></i>
+                    </button>
                     <div class="d-flex align-items-center" style="flex-wrap:wrap; gap:0.5rem; width:100%;">
                         <div class="input-group input-group-sm flex-fill" style="min-width:160px; max-width:280px;">
                             <div class="input-group-prepend">
@@ -318,8 +338,9 @@
                         @endif
                     </div>
                 </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
+                <div class="collapse show" id="monitoringCollapse">
+                    <div class="card-body p-0">
+                        <div class="table-responsive" id="monitoringTableWrapper">
                         <table class="table table-hover table-borderless text-sm mb-0 table-stack" id="monitoringTable">
                             <thead class="text-uppercase" style="opacity: 0.8; font-size: 0.75rem;">
                                 <tr>
@@ -460,6 +481,7 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -681,6 +703,14 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Toggle collapse icon
+            $('#monitoringCollapse').on('show.bs.collapse', function () {
+                $('#monitoringCollapseIcon').removeClass('fa-chevron-down').addClass('fa-chevron-up');
+            });
+            $('#monitoringCollapse').on('hide.bs.collapse', function () {
+                $('#monitoringCollapseIcon').removeClass('fa-chevron-up').addClass('fa-chevron-down');
+            });
+
             // Chart Defaults for Modern Dark Mode
             Chart.defaults.color = '#94a3b8';
             Chart.defaults.font.family = "'Inter', sans-serif";
