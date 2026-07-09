@@ -502,7 +502,6 @@
                                                 $gmApproval = $item->approvals->where('approver_role', 'general_manager')->whereIn('status', ['approved', 'rejected'])->sortByDesc('created_at')->first();
                                                 $procApproval = $item->approvals->where('approver_role', 'procurement')->where('status', 'approved')->first();
                                                 $validationNotes = $item->approvals
-                                                    ->where('status', 'pending')
                                                     ->filter(function($approval) {
                                                         return !empty($approval->notes);
                                                     })
