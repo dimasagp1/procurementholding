@@ -2486,7 +2486,109 @@ class PurchaseRequestController extends Controller
         }
     }
 
+    /**
+     * [MAINTENANCE] Manually re-sync a specific PR's expenses to the Finance (pagu) system.
+     * This is used for old PRs that were created before the Finance API was configured.
+     * Only accessible by superadmin.
+     */
+    public function syncExpenseToFinance(PurchaseRequest $purchaseRequest)
+    {
+        if (!Auth::user()->hasRole('superadmin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return redirect()->back()->with('error', 'Konfigurasi API Finance belum lengkap di Settings.');
+        }
+
+        // Only PRs that have committed items (ordered/delivered/completed) can be synced
+        $committedItems = $purchaseRequest->items()->whereIn('status', ['ordered', 'delivered', 'completed'])->get();
+
+        if ($committedItems->isEmpty()) {
+            return redirect()->back()->with('error', "PR #{$purchaseRequest->pr_number} tidak memiliki item yang sudah di-order/deliver/complete. Tidak ada yang perlu di-sync ke pagu.");
+        }
+
+        // Check items without purpose
+        $noPurposeItems = $committedItems->filter(fn($i) => empty($i->purpose));
+        if ($noPurposeItems->count() === $committedItems->count()) {
+            return redirect()->back()->with('error', "Semua item pada PR #{$purchaseRequest->pr_number} tidak memiliki kategori (purpose). Harap isi kategori item terlebih dahulu.");
+        }
+
+        $purchaseRequest->load('department');
+        $this->syncPrExpensesWithFinance($purchaseRequest);
+
+        \Log::info("[MANUAL SYNC] Superadmin " . Auth::user()->name . " triggered expense sync for PR {$purchaseRequest->pr_number}");
+
+        return redirect()->back()->with('success', "Sync expense PR #{$purchaseRequest->pr_number} ke sistem pagu Finance berhasil dikirim. Cek halaman Staging Pagu untuk konfirmasi.");
+    }
+
+    /**
+     * [MAINTENANCE] Bulk re-sync all PRs with committed items that may not be recorded in Finance.
+     * Only accessible by superadmin.
+     */
+    public function bulkSyncExpensesToFinance(Request $request)
+    {
+        if (!Auth::user()->hasRole('superadmin')) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
+            return redirect()->back()->with('error', 'Konfigurasi API Finance belum lengkap di Settings.');
+        }
+
+        // Find all PRs that have at least one committed item
+        $prs = PurchaseRequest::with(['items', 'department'])
+            ->whereHas('items', function ($q) {
+                $q->whereIn('status', ['ordered', 'delivered', 'completed']);
+            })
+            ->get();
+
+        if ($prs->isEmpty()) {
+            return redirect()->back()->with('error', 'Tidak ada PR dengan item yang sudah di-order/deliver/complete.');
+        }
+
+        $synced = 0;
+        $skipped = 0;
+        $errors = [];
+
+        foreach ($prs as $pr) {
+            try {
+                $hasCommittedWithPurpose = $pr->items->filter(fn($i) =>
+                    in_array($i->status, ['ordered', 'delivered', 'completed']) && !empty($i->purpose)
+                )->isNotEmpty();
+
+                if (!$hasCommittedWithPurpose) {
+                    $skipped++;
+                    continue;
+                }
+
+                $this->syncPrExpensesWithFinance($pr);
+                $synced++;
+                \Log::info("[BULK SYNC] Synced expense for PR {$pr->pr_number}");
+            } catch (\Exception $e) {
+                $errors[] = "PR #{$pr->pr_number}: " . $e->getMessage();
+                \Log::error("[BULK SYNC] Failed for PR {$pr->pr_number}: " . $e->getMessage());
+            }
+        }
+
+        \Log::info("[BULK SYNC] Superadmin " . Auth::user()->name . " ran bulk expense sync. Synced: {$synced}, Skipped: {$skipped}, Errors: " . count($errors));
+
+        $msg = "Bulk sync selesai. {$synced} PR berhasil di-sync, {$skipped} PR dilewati (tidak ada kategori).";
+        if (!empty($errors)) {
+            $msg .= " Gagal: " . implode(' | ', array_slice($errors, 0, 3));
+        }
+
+        return redirect()->back()->with('success', $msg);
+    }
+
     public function resendNotification(PurchaseRequest $purchaseRequest)
+
     {
         $recipients = collect();
         $notification = null;

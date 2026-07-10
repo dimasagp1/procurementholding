@@ -50,6 +50,32 @@
     </div>
 </div>
 
+@if(auth()->user()->hasRole('superadmin'))
+<div class="content-header pt-0">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-secondary d-flex align-items-center justify-content-between flex-wrap" style="gap: 0.5rem;">
+                    <div>
+                        <i class="fas fa-tools text-warning mr-2"></i>
+                        <strong>Mode Maintenance (Superadmin):</strong>
+                        Gunakan tombol ini untuk mensinkronkan <em>semua</em> PR lama yang belum terhubung ke pagu Finance.
+                        Proses ini aman untuk dijalankan berulang kali (idempotent).
+                    </div>
+                    <form action="{{ route('purchase-requests.bulk-sync-expenses') }}" method="POST"
+                          onsubmit="return confirm('Yakin ingin menjalankan bulk sync expense ke sistem pagu Finance?\n\nProses ini akan mengirim ulang data expense SEMUA PR yang memiliki item ordered/delivered/completed.\nAman dijalankan berulang kali.')">
+                        @csrf
+                        <button type="submit" class="btn btn-warning btn-sm text-dark font-weight-bold">
+                            <i class="fas fa-sync-alt mr-1"></i> Bulk Sync Semua PR ke Pagu
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endif
+
 <!-- Main Content -->
 <section class="content">
     <div class="container-fluid">

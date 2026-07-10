@@ -48,6 +48,7 @@ Route::middleware('auth')->group(function () {
     Route::get('purchase-requests/approvals', [PurchaseRequestController::class, 'approvalQueue'])
         ->middleware('role:operational_manager|manager_fat|general_manager|superadmin')
         ->name('purchase-requests.approvals');
+    Route::post('purchase-requests/bulk-sync-expenses', [PurchaseRequestController::class, 'bulkSyncExpensesToFinance'])->name('purchase-requests.bulk-sync-expenses');
     Route::resource('purchase-requests', PurchaseRequestController::class);
     Route::post('/api/internal/check-budget', [PurchaseRequestController::class, 'checkBudget'])->name('api.internal.check-budget');
     Route::post('purchase-requests/{purchaseRequest}/save-estimates', [PurchaseRequestController::class, 'saveEstimates'])->name('purchase-requests.save-estimates');
@@ -73,6 +74,7 @@ Route::middleware('auth')->group(function () {
     Route::post('purchase-requests/{item}/update-status', [PurchaseRequestController::class, 'updateItemStatus'])->name('purchase-requests.update-item-status');
     Route::post('purchase-requests/{item}/toggle-flags', [PurchaseRequestController::class, 'toggleItemFlags'])->name('purchase-requests.toggle-item-flags');
     Route::post('purchase-requests/{item}/sync-to-odoo', [PurchaseRequestController::class, 'syncItemToOdoo'])->name('purchase-requests.sync-to-odoo');
+    Route::post('purchase-requests/{purchaseRequest}/sync-expense', [PurchaseRequestController::class, 'syncExpenseToFinance'])->name('purchase-requests.sync-expense');
     Route::get('odoo/vendors', [PurchaseRequestController::class, 'getOdooVendors'])->name('api.odoo.vendors');
     Route::put('purchase-requests/{item}/delivery-plans', [PurchaseRequestController::class, 'updateDeliveryPlans'])->name('purchase-requests.update-delivery-plans');
     Route::post('purchase-requests/{item}/deliveries', [PurchaseRequestController::class, 'storeDelivery'])->name('purchase-requests.store-delivery');

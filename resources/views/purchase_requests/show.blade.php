@@ -99,6 +99,15 @@
                                         </form>
                                     @endif
 
+                                    @if(auth()->user()->hasRole('superadmin') && $purchaseRequest->items->whereIn('status', ['ordered', 'delivered', 'completed'])->isNotEmpty())
+                                        <form action="{{ route('purchase-requests.sync-expense', $purchaseRequest) }}" method="POST" class="d-inline form-confirm" data-message="Sync expense PR ini ke sistem pagu Finance? Ini akan mengirimkan ulang data pengeluaran PR ini ke FAT.">
+                                            @csrf
+                                            <button type="submit" class="btn btn-sm" style="background-color: #6f42c1; color: white;" title="Sync pengeluaran PR lama ke sistem pagu Finance (Maintenance)">
+                                                <i class="fas fa-sync-alt"></i> Sync ke Pagu
+                                            </button>
+                                        </form>
+                                    @endif
+
                                     @if($eligibleApproveItems->isNotEmpty())
                                         <button type="button" class="btn btn-success btn-sm" data-toggle="modal" data-target="#bulkApproveModal">
                                             <i class="fas fa-check-double"></i> Approve ALL ({{ $eligibleApproveItems->count() }})
@@ -107,6 +116,8 @@
                                             <i class="fas fa-times-circle"></i> Reject ALL ({{ $eligibleApproveItems->count() }})
                                         </button>
                                     @endif
+
+
 
                                     @if($eligibleNoteItems->isNotEmpty())
                                         <button type="button" class="btn btn-primary btn-sm" data-toggle="modal" data-target="#bulkNoteModal">
