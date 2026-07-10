@@ -245,7 +245,8 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            let itemIndex = {{ $purchaseRequest->items->count() }};
+            try {
+                let itemIndex = {{ $purchaseRequest->items->count() }};
             const container = document.getElementById('items-container');
             const addButton = document.getElementById('add-item');
 
@@ -265,7 +266,7 @@
                 feedbackDiv.innerHTML = '<span class="text-gray-400" style="font-size: 0.75rem;"><i class="fas fa-spinner fa-spin mr-1"></i> Memeriksa budget...</span>';
                 
                 const requestDateVal = document.getElementById('request_date').value;
-                const departmentIdVal = "{{ Auth::user()->department_id }}";
+                const departmentIdVal = "{{ $purchaseRequest->department_id }}";
                 
                 fetch('/api/internal/check-budget', {
                     method: 'POST',
@@ -467,50 +468,72 @@
             };
 
             function initTomSelects(rowElement, index) {
-                const uomSelect = rowElement.querySelector('.tomselect-uom');
-                if (uomSelect && !uomSelect.classList.contains('tomselected')) {
-                    new TomSelect(uomSelect, {
-                        create: false,
-                        sortField: { field: "text", direction: "asc" },
-                        placeholder: "Select UOM",
-                        onChange: function(value) {
-                            window.toggleManualUom(value, index);
-                        }
-                    });
+                try {
+                    const uomSelect = rowElement.querySelector('.tomselect-uom');
+                    if (uomSelect && !uomSelect.classList.contains('tomselected')) {
+                        new TomSelect(uomSelect, {
+                            create: false,
+                            sortField: { field: "text", direction: "asc" },
+                            placeholder: "Select UOM",
+                            onChange: function(value) {
+                                window.toggleManualUom(value, index);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error("UOM TomSelect error:", e);
                 }
 
-                const itemSelect = rowElement.querySelector('.tomselect-item');
-                if (itemSelect && !itemSelect.classList.contains('tomselected')) {
-                    new TomSelect(itemSelect, {
-                        create: false,
-                        sortField: { field: "text", direction: "asc" },
-                        placeholder: "Select Item Name",
-                        onChange: function(value) {
-                            window.toggleManualItemName(value, index);
-                        }
-                    });
+                try {
+                    const itemSelect = rowElement.querySelector('.tomselect-item');
+                    if (itemSelect && !itemSelect.classList.contains('tomselected')) {
+                        new TomSelect(itemSelect, {
+                            create: false,
+                            sortField: { field: "text", direction: "asc" },
+                            placeholder: "Select Item Name",
+                            onChange: function(value) {
+                                window.toggleManualItemName(value, index);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error("Item TomSelect error:", e);
                 }
 
-                const purposeSelect = rowElement.querySelector('.purpose-select');
-                if (purposeSelect && !purposeSelect.classList.contains('tomselected')) {
-                    new TomSelect(purposeSelect, {
-                        create: false,
-                        sortField: { field: "text", direction: "asc" },
-                        placeholder: "Select Purpose",
-                        onChange: function(value) {
-                            fetchPurposeBudget(value, index);
-                        }
-                    });
+                try {
+                    const purposeSelect = rowElement.querySelector('.purpose-select');
+                    if (purposeSelect && !purposeSelect.classList.contains('tomselected')) {
+                        new TomSelect(purposeSelect, {
+                            create: false,
+                            sortField: { field: "text", direction: "asc" },
+                            placeholder: "Select Purpose",
+                            onChange: function(value) {
+                                fetchPurposeBudget(value, index);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error("Purpose TomSelect error:", e);
                 }
             }
 
             // Initialize all existing selects
             document.querySelectorAll('.item-row').forEach((row) => {
                 const idx = row.id.split('-').pop();
-                initTomSelects(row, idx);
                 const selectEl = row.querySelector('.purpose-select');
-                if (selectEl && selectEl.value) {
-                    fetchPurposeBudget(selectEl.value, idx);
+                const initialValue = selectEl ? selectEl.value : '';
+                initTomSelects(row, idx);
+                if (initialValue) {
+                    fetchPurposeBudget(initialValue, idx);
+                }
+            });
+
+            // Native/jQuery change listener fallback for purpose-select
+            $(document).on('change', '.purpose-select', function() {
+                const row = this.closest('.item-row');
+                if (row) {
+                    const idx = row.id.split('-').pop();
+                    fetchPurposeBudget(this.value, idx);
                 }
             });
 
@@ -563,6 +586,9 @@
                         form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
                     }
                 });
+            } catch (e) {
+                console.error("PurchaseRequest Edit JS Error:", e);
+                alert("JS Initialization Error: " + e.message);
             }
         });
     </script>
