@@ -216,6 +216,12 @@
                                         @if($item->purpose)
                                             <br><span class="badge badge-info text-xs mt-1" style="background-color: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; font-weight: normal; font-size: 0.7rem;"><i class="fas fa-bullseye mr-1"></i>{{ $item->purpose }}</span>
                                         @endif
+                                        @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+                                            <br>
+                                            <button type="button" class="btn btn-link text-warning p-0 text-xs mt-1" data-toggle="modal" data-target="#editPurposeModal-{{ $item->id }}" style="text-decoration: none;">
+                                                <i class="fas fa-edit mr-1"></i> {{ empty($item->purpose) || $item->purpose === '-' ? 'Set Kategori' : 'Ubah Kategori' }}
+                                            </button>
+                                        @endif
                                         @if($item->attachment)
                                             <br><a href="{{ asset('storage/' . $item->attachment) }}" 
                                                    class="text-blue-600 preview-attachment" 
@@ -744,9 +750,46 @@
                                         @endif
                                          <!-- Revision Action moved to bulk button above table -->
                                     </td>
-                                </tr>
+                                 </tr>
 
-                                @endforeach
+                                 @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+                                     <!-- Edit Purpose Modal -->
+                                     <div class="modal fade" id="editPurposeModal-{{ $item->id }}" tabindex="-1">
+                                         <div class="modal-dialog">
+                                             <form action="{{ route('purchase-requests.update-item-purpose', $item) }}" method="POST">
+                                                 @csrf
+                                                 <div class="modal-content text-left" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
+                                                     <div class="modal-header border-bottom-0">
+                                                         <h5 class="modal-title"><i class="fas fa-bullseye text-warning mr-2"></i>Ubah Kategori Anggaran</h5>
+                                                         <button type="button" class="close text-white" data-dismiss="modal">&times;</button>
+                                                     </div>
+                                                     <div class="modal-body">
+                                                         <p class="text-sm text-gray-400">Pilih kategori anggaran (Purpose) yang sesuai untuk item: <strong>{{ $item->item_name }}</strong>.</p>
+                                                         <div class="form-group mt-3">
+                                                             <label class="text-gray-300">Kategori Anggaran *</label>
+                                                             <select name="purpose" class="form-control" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                                 <option value="">Select Purpose</option>
+                                                                 @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
+                                                                     <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                                         @foreach($deptItems as $p)
+                                                                             <option value="{{ $p->name }}" {{ $item->purpose == $p->name ? 'selected' : '' }}>{{ $p->name }}</option>
+                                                                         @endforeach
+                                                                     </optgroup>
+                                                                 @endforeach
+                                                             </select>
+                                                         </div>
+                                                     </div>
+                                                     <div class="modal-footer border-top-0 pt-0">
+                                                         <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Batal</button>
+                                                         <button type="submit" class="btn btn-warning btn-sm">Simpan</button>
+                                                     </div>
+                                                 </div>
+                                             </form>
+                                         </div>
+                                     </div>
+                                 @endif
+
+                                 @endforeach
                         </table>
                     </div>
 

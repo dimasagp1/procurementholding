@@ -2751,6 +2751,29 @@ class PurchaseRequestController extends Controller
         return redirect()->back()->with('success', 'Penerimaan barang retur berhasil dicatat.');
     }
 
+    public function updateItemPurpose(Request $request, PrItem $item)
+    {
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['procurement', 'superadmin'])) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'purpose' => 'required|string|max:255'
+        ]);
+
+        $item->update([
+            'purpose' => $request->purpose
+        ]);
+
+        // Re-sync expenses to Finance Application if this item is already committed
+        if (in_array($item->status, ['ordered', 'delivered', 'completed'])) {
+            $this->syncPrExpensesWithFinance($item->purchaseRequest);
+        }
+
+        return redirect()->back()->with('success', 'Kategori anggaran (purpose) berhasil diperbarui.');
+    }
+
     public function toggleItemFlags(Request $request, PrItem $item)
     {
         $user = Auth::user();

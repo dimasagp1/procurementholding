@@ -69,6 +69,7 @@ Route::middleware('auth')->group(function () {
     Route::post('purchase-requests/{item}/revise', [PurchaseRequestController::class, 'reviseItem'])->name('purchase-requests.revise-item');
     Route::delete('purchase-requests/items/{item}', [PurchaseRequestController::class, 'deleteRejectedItem'])->name('purchase-requests.delete-rejected-item');
     Route::put('purchase-requests/items/{item}/quantity', [PurchaseRequestController::class, 'updateItemQuantity'])->name('purchase-requests.update-item-quantity');
+    Route::post('purchase-requests/items/{item}/update-purpose', [PurchaseRequestController::class, 'updateItemPurpose'])->name('purchase-requests.update-item-purpose');
     Route::get('purchase-requests/{purchaseRequest}/preview', [PurchaseRequestController::class, 'preview'])->name('purchase-requests.preview');
     Route::get('purchase-requests/{purchaseRequest}/export', [PurchaseRequestController::class, 'export'])->name('purchase-requests.export');
     Route::post('purchase-requests/{item}/update-status', [PurchaseRequestController::class, 'updateItemStatus'])->name('purchase-requests.update-item-status');
