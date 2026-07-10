@@ -509,7 +509,8 @@ class PurchaseRequestController extends Controller
         $this->authorize('view pr', $purchaseRequest);
 
         $purchaseRequest->load(['items.deliveries', 'approvals', 'user', 'department']);
-        return view('purchase_requests.show', compact('purchaseRequest'));
+        $purposes = $this->getPurposesFromFinance();
+        return view('purchase_requests.show', compact('purchaseRequest', 'purposes'));
     }
 
     public function edit(PurchaseRequest $purchaseRequest)
@@ -1524,6 +1525,7 @@ class PurchaseRequestController extends Controller
                 'group_items' => 'nullable|array',
                 'group_items.*' => 'integer',
                 'group_actual_prices' => 'nullable|array',
+                'purpose' => 'nullable|string|max:255',
             ]);
 
             if ($request->filled('planned_quantities')) {
@@ -1531,6 +1533,10 @@ class PurchaseRequestController extends Controller
                 if ($totalPlanned > $item->quantity) {
                     return redirect()->back()->with('error', 'Total rencana kedatangan (' . $totalPlanned . ') tidak boleh melebihi jumlah pesanan (' . $item->quantity . ').');
                 }
+            }
+
+            if ($request->filled('purpose')) {
+                $item->update(['purpose' => $request->purpose]);
             }
 
             // Kirim data ke Odoo dan buat PO otomatis jika bertipe Operational

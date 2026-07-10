@@ -898,7 +898,21 @@
                                                         <div class="row align-items-center">
                                                             <div class="col-md-6">
                                                                 <span class="text-gray-400 text-sm">Kategori Anggaran (Purpose)</span><br>
-                                                                <span class="text-white font-weight-bold">{{ $item->purpose ?? '-' }}</span>
+                                                                @if(empty($item->purpose) || $item->purpose === '-')
+                                                                    <select name="purpose" class="form-control form-control-sm mt-1" required style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); color: white;">
+                                                                        <option value="">Select Purpose</option>
+                                                                        @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
+                                                                            <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                                                @foreach($deptItems as $p)
+                                                                                    <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                                                                @endforeach
+                                                                            </optgroup>
+                                                                        @endforeach
+                                                                    </select>
+                                                                @else
+                                                                    <span class="text-white font-weight-bold">{{ $item->purpose }}</span>
+                                                                    <input type="hidden" name="purpose" value="{{ $item->purpose }}">
+                                                                @endif
                                                             </div>
                                                             <div class="col-md-6 text-md-right mt-2 mt-md-0">
                                                                 <span class="text-gray-400 text-sm">📁 Pagu Tersedia</span><br>
@@ -1812,11 +1826,22 @@
                 checkModalBudget($(this));
             });
 
+            $(document).on('change', '[id^="orderModal-"] select[name="purpose"]', function() {
+                const modal = $(this).closest('.modal');
+                const priceInput = modal.find('input[name="actual_price"]');
+                checkModalBudget(priceInput);
+            });
+
             function checkModalBudget(input) {
                 const itemId = input.data('item-id');
                 const qty = parseFloat(input.data('qty')) || 0;
                 const price = parseFloat(input.val()) || 0;
-                const purpose = input.data('purpose');
+                
+                // Read from select input if it exists, otherwise from data-purpose attribute
+                const modal = input.closest('.modal');
+                const purposeSelect = modal.find('select[name="purpose"]');
+                const purpose = purposeSelect.length > 0 ? purposeSelect.val() : input.data('purpose');
+                
                 const deptId = input.data('dept-id');
                 const date = input.data('date');
                 
@@ -1825,7 +1850,21 @@
                 // Update total actual price in UI
                 $(`#modal-total-harga-${itemId}`).text(formatIDR(totalActual));
                 
-                if (!purpose) return;
+                const alertDiv = $(`#modal-budget-alert-${itemId}`);
+                const alertText = $(`#modal-budget-alert-text-${itemId}`);
+                const paguSpan = $(`#modal-pagu-tersedia-${itemId}`);
+                const sisaSpan = $(`#modal-sisa-pagu-${itemId}`);
+                const badgeSpan = $(`#modal-status-badge-${itemId}`);
+                
+                if (!purpose) {
+                    alertDiv.removeClass('alert-success alert-danger').addClass('alert-warning');
+                    alertText.text('Kategori anggaran (Purpose) belum dipilih atau kosong');
+                    paguSpan.text('-');
+                    sisaSpan.text('Rp -');
+                    badgeSpan.removeClass('badge-success badge-danger').addClass('badge-secondary')
+                        .html('<i class="fas fa-info-circle mr-1"></i> Belum Dipilih');
+                    return;
+                }
                 
                 // Call internal check budget
                 fetch('/api/internal/check-budget', {
@@ -1844,12 +1883,6 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    const alertDiv = $(`#modal-budget-alert-${itemId}`);
-                    const alertText = $(`#modal-budget-alert-text-${itemId}`);
-                    const paguSpan = $(`#modal-pagu-tersedia-${itemId}`);
-                    const sisaSpan = $(`#modal-sisa-pagu-${itemId}`);
-                    const badgeSpan = $(`#modal-status-badge-${itemId}`);
-                    
                     const limit = data.budget_limit !== null ? parseFloat(data.budget_limit) : 0;
                     const usage = data.current_usage !== null ? parseFloat(data.current_usage) : 0;
                     const remaining = data.remaining_budget !== null ? parseFloat(data.remaining_budget) : 0;
@@ -1872,7 +1905,7 @@
                     // Update Status Badge and Alert Banner
                     if (isAllowed) {
                         // Safe
-                        badgeSpan.removeClass('badge-danger').addClass('badge-success')
+                        badgeSpan.removeClass('badge-danger badge-secondary').addClass('badge-success')
                             .html('<i class="fas fa-check-circle mr-1"></i> Aman');
                         
                         alertDiv.removeClass('alert-danger').addClass('alert-success');
@@ -1880,10 +1913,10 @@
                         alertDiv.find('i').removeClass('fa-exclamation-triangle').addClass('fa-check-circle');
                     } else {
                         // Over Budget (Soft Warning - Opsi 1)
-                        badgeSpan.removeClass('badge-success').addClass('badge-danger')
+                        badgeSpan.removeClass('badge-success badge-secondary').addClass('badge-danger')
                             .html('<i class="fas fa-exclamation-triangle mr-1"></i> Over Budget');
                         
-                        alertDiv.removeClass('alert-success').addClass('alert-danger');
+                        alertDiv.removeClass('alert-success alert-warning').addClass('alert-danger');
                         alertText.text(`Peringatan: Total Pengeluaran PO (${formatIDR(totalActual)}) melebihi sisa anggaran!`);
                         alertDiv.find('i').removeClass('fa-check-circle').addClass('fa-exclamation-triangle');
                     }
