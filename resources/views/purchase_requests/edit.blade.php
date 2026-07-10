@@ -244,353 +244,371 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function initPRPage() {
             try {
+                console.log("initPRPage starting...");
                 let itemIndex = {{ $purchaseRequest->items->count() }};
-            const container = document.getElementById('items-container');
-            const addButton = document.getElementById('add-item');
+                const container = document.getElementById('items-container');
+                const addButton = document.getElementById('add-item');
 
-            function formatIDR(num) {
-                return 'Rp ' + parseFloat(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-            }
-
-            function fetchPurposeBudget(purpose, index) {
-                const feedbackDiv = document.getElementById(`budget-feedback-${index}`);
-                if (!feedbackDiv) return;
-                
-                if (!purpose) {
-                    feedbackDiv.innerHTML = '';
-                    return;
+                function formatIDR(num) {
+                    return 'Rp ' + parseFloat(num).toLocaleString('id-ID', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
                 }
-                
-                feedbackDiv.innerHTML = '<span class="text-gray-400" style="font-size: 0.75rem;"><i class="fas fa-spinner fa-spin mr-1"></i> Memeriksa budget...</span>';
-                
-                const requestDateVal = document.getElementById('request_date').value;
-                const departmentIdVal = "{{ $purchaseRequest->department_id }}";
-                
-                fetch('/api/internal/check-budget', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': '{{ csrf_token() }}'
-                    },
-                    body: JSON.stringify({
+
+                function fetchPurposeBudget(purpose, index) {
+                    console.log("fetchPurposeBudget index:", index, "purpose:", purpose);
+                    const feedbackDiv = document.getElementById(`budget-feedback-${index}`);
+                    if (!feedbackDiv) {
+                        console.warn("feedbackDiv not found for index", index);
+                        return;
+                    }
+                    
+                    if (!purpose) {
+                        feedbackDiv.innerHTML = '';
+                        return;
+                    }
+                    
+                    feedbackDiv.innerHTML = '<span class="text-gray-400" style="font-size: 0.75rem;"><i class="fas fa-spinner fa-spin mr-1"></i> Memeriksa budget...</span>';
+                    
+                    const requestDateVal = document.getElementById('request_date').value;
+                    const departmentIdVal = "{{ $purchaseRequest->department_id }}";
+                    
+                    console.log("Sending fetch check-budget request:", {
                         request_date: requestDateVal,
                         department_id: departmentIdVal,
-                        purpose: purpose,
-                        requested_amount: 0
+                        purpose: purpose
+                    });
+
+                    fetch('/api/internal/check-budget', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'X-CSRF-TOKEN': '{{ csrf_token() }}'
+                        },
+                        body: JSON.stringify({
+                            request_date: requestDateVal,
+                            department_id: departmentIdVal,
+                            purpose: purpose,
+                            requested_amount: 0
+                        })
                     })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.remaining_budget !== undefined && data.remaining_budget !== null) {
-                        const remaining = parseFloat(data.remaining_budget);
-                        const formatted = formatIDR(remaining);
-                        
-                        if (remaining >= 0) {
-                            feedbackDiv.innerHTML = `<span class="text-success" style="font-size: 0.75rem;"><i class="fas fa-check-circle mr-1"></i> Sisa Pagu: ${formatted}</span>`;
-                        } else {
-                            feedbackDiv.innerHTML = `<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-circle mr-1"></i> Over Budget (Sisa: ${formatted})</span>`;
-                        }
-                    } else {
-                        feedbackDiv.innerHTML = `<span class="text-warning" style="font-size: 0.75rem;"><i class="fas fa-info-circle mr-1"></i> Pagu tidak dikonfigurasi</span>`;
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching purpose budget:', error);
-                    feedbackDiv.innerHTML = '<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-triangle mr-1"></i> Gagal memuat budget</span>';
-                });
-            }
-
-            document.getElementById('request_date').addEventListener('change', function() {
-                document.querySelectorAll('.item-row').forEach((row) => {
-                    const idx = row.id.split('-').pop();
-                    const selectEl = row.querySelector('.purpose-select');
-                    if (selectEl && selectEl.value) {
-                        fetchPurposeBudget(selectEl.value, idx);
-                    }
-                });
-            });
-
-            function createItemRow(index) {
-                const html = `
-                    <div class="card mb-3 item-row" id="item-row-${index}">
-                        <div class="card-body">
-                            <div class="d-flex justify-content-between mb-3">
-                                <h5 class="card-title">Item #${index + 1}</h5>
-                                <button type="button" class="btn btn-danger btn-xs remove-item" data-index="${index}">
-                                    <i class="fas fa-times"></i> Remove
-                                </button>
-                            </div>
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log("fetchResponse index:", index, "data:", data);
+                        if (data.remaining_budget !== undefined && data.remaining_budget !== null) {
+                            const remaining = parseFloat(data.remaining_budget);
+                            const formatted = formatIDR(remaining);
                             
-                            <div class="row">
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label">Item Name *</label>
-                                    <select name="items[${index}][item_name]" id="item_name_select_${index}" class="form-control tomselect-item" required>
-                                        <option value="">Select Item Name</option>
-                                        @foreach($masterItems as $masterItem)
-                                            <option value="{{ $masterItem->name }}">{{ $masterItem->name }}</option>
-                                        @endforeach
-                                        <option value="other">Others (Tulis Manual)</option>
-                                    </select>
-                                    <input type="text" name="items[${index}][manual_item_name]" id="manual_item_name_${index}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display:none;">
-                                </div>
-                                <div class="col-md-3 mb-3">
-                                    <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
-                                    <select name="items[${index}][purpose]" class="form-control purpose-select" required>
-                                        <option value="">Select Purpose</option>
-                                        @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
-                                            <optgroup label="{{ $deptName ?: 'Lainnya' }}">
-                                                @foreach($deptItems as $p)
-                                                    <option value="{{ $p->name }}">{{ $p->name }}</option>
-                                                @endforeach
-                                            </optgroup>
-                                        @endforeach
-                                    </select>
-                                    <div class="budget-feedback mt-1 font-weight-bold" id="budget-feedback-${index}" style="font-size: 0.75rem;"></div>
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label">Quantity *</label>
-                                    <input type="number" step="0.01" name="items[${index}][quantity]" class="form-control quantity-input" min="0.01" required>
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label">UOM *</label>
-                                    <select name="items[${index}][uom]" class="form-control tomselect-uom" required>
-                                        <option value="">Select UOM</option>
-                                        @foreach($uoms as $uom)
-                                            <option value="{{ $uom->name }}">{{ $uom->name }}</option>
-                                        @endforeach
-                                        <option value="other">Others (Tulis Manual)</option>
-                                    </select>
-                                    <input type="text" name="items[${index}][manual_uom]" id="manual_uom_${index}" class="form-control mt-2" placeholder="Tulis UOM manual..." style="display:none;">
-                                </div>
-                                <div class="col-md-2 mb-3">
-                                    <label class="form-label">Attachment / File (Optional)</label>
-                                    <input type="file" name="items[${index}][attachment]" class="form-control">
-                                </div>
-                            </div>
-                            <div class="row align-items-end">
-                                <div class="col-md-12 mb-3">
-                                                     <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
-                                    <input type="text" name="items[${index}][due_date]" class="form-control" placeholder="Contoh: ASAP, 20 Jan, atau Segera">
+                            if (remaining >= 0) {
+                                feedbackDiv.innerHTML = `<span class="text-success" style="font-size: 0.75rem;"><i class="fas fa-check-circle mr-1"></i> Sisa Pagu: ${formatted}</span>`;
+                            } else {
+                                feedbackDiv.innerHTML = `<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-circle mr-1"></i> Over Budget (Sisa: ${formatted})</span>`;
+                            }
+                        } else {
+                            feedbackDiv.innerHTML = `<span class="text-warning" style="font-size: 0.75rem;"><i class="fas fa-info-circle mr-1"></i> Pagu tidak dikonfigurasi</span>`;
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching purpose budget:', error);
+                        feedbackDiv.innerHTML = '<span class="text-danger" style="font-size: 0.75rem;"><i class="fas fa-exclamation-triangle mr-1"></i> Gagal memuat budget</span>';
+                    });
+                }
+
+                const requestDateEl = document.getElementById('request_date');
+                if (requestDateEl) {
+                    requestDateEl.addEventListener('change', function() {
+                        document.querySelectorAll('.item-row').forEach((row) => {
+                            const idx = row.id.split('-').pop();
+                            const selectEl = row.querySelector('.purpose-select');
+                            if (selectEl && selectEl.value) {
+                                fetchPurposeBudget(selectEl.value, idx);
+                            }
+                        });
+                    });
+                }
+
+                function createItemRow(index) {
+                    const html = `
+                        <div class="card mb-3 item-row" id="item-row-${index}">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between mb-3">
+                                    <h5 class="card-title">Item #${index + 1}</h5>
+                                    <button type="button" class="btn btn-danger btn-xs remove-item" data-index="${index}">
+                                        <i class="fas fa-times"></i> Remove
+                                    </button>
                                 </div>
                                 
-                                
-                                
-                            </div>
-                            <div class="row">
-                                <div class="col-md-12 mb-3">
-                                    <label class="form-label">Description / Specs</label>
-                                    <textarea name="items[${index}][description]" class="form-control" rows="2"></textarea>
+                                <div class="row">
+                                    <div class="col-md-3 mb-3">
+                                        <label class="form-label">Item Name *</label>
+                                        <select name="items[${index}][item_name]" id="item_name_select_${index}" class="form-control tomselect-item" required>
+                                            <option value="">Select Item Name</option>
+                                            @foreach($masterItems as $masterItem)
+                                                <option value="{{ $masterItem->name }}">{{ $masterItem->name }}</option>
+                                            @endforeach
+                                            <option value="other">Others (Tulis Manual)</option>
+                                        </select>
+                                        <input type="text" name="items[${index}][manual_item_name]" id="manual_item_name_${index}" class="form-control mt-2" placeholder="Tulis nama manual..." style="display:none;">
+                                    </div>
+                                    <div class="col-md-3 mb-3">
+                                        <label class="form-label font-weight-bold text-primary"><i class="fas fa-bullseye mr-1"></i>Purpose of Request *</label>
+                                        <select name="items[${index}][purpose]" class="form-control purpose-select" required>
+                                            <option value="">Select Purpose</option>
+                                            @foreach($purposes->groupBy('department_name') as $deptName => $deptItems)
+                                                <optgroup label="{{ $deptName ?: 'Lainnya' }}">
+                                                    @foreach($deptItems as $p)
+                                                        <option value="{{ $p->name }}">{{ $p->name }}</option>
+                                                    @endforeach
+                                                </optgroup>
+                                            @endforeach
+                                        </select>
+                                        <div class="budget-feedback mt-1 font-weight-bold" id="budget-feedback-${index}" style="font-size: 0.75rem;"></div>
+                                    </div>
+                                    <div class="col-md-2 mb-3">
+                                        <label class="form-label">Quantity *</label>
+                                        <input type="number" step="0.01" name="items[${index}][quantity]" class="form-control quantity-input" min="0.01" required>
+                                    </div>
+                                    <div class="col-md-2 mb-3">
+                                        <label class="form-label">UOM *</label>
+                                        <select name="items[${index}][uom]" class="form-control tomselect-uom" required>
+                                            <option value="">Select UOM</option>
+                                            @foreach($uoms as $uom)
+                                                <option value="{{ $uom->name }}">{{ $uom->name }}</option>
+                                            @endforeach
+                                            <option value="other">Others (Tulis Manual)</option>
+                                        </select>
+                                        <input type="text" name="items[${index}][manual_uom]" id="manual_uom_${index}" class="form-control mt-2" placeholder="Tulis UOM manual..." style="display:none;">
+                                    </div>
+                                    <div class="col-md-2 mb-3">
+                                        <label class="form-label">Attachment / File (Optional)</label>
+                                        <input type="file" name="items[${index}][attachment]" class="form-control">
+                                    </div>
+                                </div>
+                                <div class="row align-items-end">
+                                    <div class="col-md-12 mb-3">
+                                                         <label class="form-label">Tgl Dibutuhkan / Keterangan</label>
+                                        <input type="text" name="items[${index}][due_date]" class="form-control" placeholder="Contoh: ASAP, 20 Jan, atau Segera">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-12 mb-3">
+                                        <label class="form-label">Description / Specs</label>
+                                        <textarea name="items[${index}][description]" class="form-control" rows="2"></textarea>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                `;
-                return html;
-            }
+                    `;
+                    return html;
+                }
 
-            // Restore any new items that were added but failed validation
-            const oldItems = @json(old('items'));
-            if (oldItems) {
-                Object.keys(oldItems).forEach(index => {
-                    // If index is greater than or equal to original count, it's a newly added row
-                    if (parseInt(index) >= {{ $purchaseRequest->items->count() }}) {
-                        container.insertAdjacentHTML('beforeend', createItemRow(parseInt(index)));
-                        const row = document.getElementById(`item-row-${index}`);
-                        
-                        // Fill in old values
-                        row.querySelector(`[name="items[${index}][item_name]"]`).value = oldItems[index].item_name || '';
-                        row.querySelector(`[name="items[${index}][purpose]"]`).value = oldItems[index].purpose || '';
-                        row.querySelector(`[name="items[${index}][quantity]"]`).value = oldItems[index].quantity || '';
-                        row.querySelector(`[name="items[${index}][uom]"]`).value = oldItems[index].uom || '';
-                        row.querySelector(`[name="items[${index}][due_date]"]`).value = oldItems[index].due_date || '';
-                                                row.querySelector(`[name="items[${index}][description]"]`).value = oldItems[index].description || '';
-                        
-                        if (oldItems[index].item_name === 'other') {
-                            const manualInput = row.querySelector(`#manual_item_name_${index}`);
-                            if (manualInput) {
-                                manualInput.style.display = 'block';
-                                manualInput.required = true;
-                                manualInput.value = oldItems[index].manual_item_name || '';
+                // Restore any new items that were added but failed validation
+                const oldItems = @json(old('items'));
+                if (oldItems) {
+                    Object.keys(oldItems).forEach(index => {
+                        // If index is greater than or equal to original count, it's a newly added row
+                        if (parseInt(index) >= {{ $purchaseRequest->items->count() }}) {
+                            container.insertAdjacentHTML('beforeend', createItemRow(parseInt(index)));
+                            const row = document.getElementById(`item-row-${index}`);
+                            
+                            // Fill in old values
+                            row.querySelector(`[name="items[${index}][item_name]"]`).value = oldItems[index].item_name || '';
+                            row.querySelector(`[name="items[${index}][purpose]"]`).value = oldItems[index].purpose || '';
+                            row.querySelector(`[name="items[${index}][quantity]"]`).value = oldItems[index].quantity || '';
+                            row.querySelector(`[name="items[${index}][uom]"]`).value = oldItems[index].uom || '';
+                            row.querySelector(`[name="items[${index}][due_date]"]`).value = oldItems[index].due_date || '';
+                            row.querySelector(`[name="items[${index}][description]"]`).value = oldItems[index].description || '';
+                            
+                            if (oldItems[index].item_name === 'other') {
+                                const manualInput = row.querySelector(`#manual_item_name_${index}`);
+                                if (manualInput) {
+                                    manualInput.style.display = 'block';
+                                    manualInput.required = true;
+                                    manualInput.value = oldItems[index].manual_item_name || '';
+                                }
+                            }
+
+                            if (oldItems[index].uom === 'other') {
+                                const manualInput = row.querySelector(`#manual_uom_${index}`);
+                                if (manualInput) {
+                                    manualInput.style.display = 'block';
+                                    manualInput.required = true;
+                                    manualInput.value = oldItems[index].manual_uom || '';
+                                }
+                            }
+
+                            if (parseInt(index) >= itemIndex) {
+                                itemIndex = parseInt(index) + 1;
                             }
                         }
-
-                        if (oldItems[index].uom === 'other') {
-                            const manualInput = row.querySelector(`#manual_uom_${index}`);
-                            if (manualInput) {
-                                manualInput.style.display = 'block';
-                                manualInput.required = true;
-                                manualInput.value = oldItems[index].manual_uom || '';
-                            }
-                        }
-
-                        if (parseInt(index) >= itemIndex) {
-                            itemIndex = parseInt(index) + 1;
-                        }
-                    }
-                });
-            }
-
-            addButton.addEventListener('click', function() {
-                container.insertAdjacentHTML('beforeend', createItemRow(itemIndex));
-                
-                const newRow = container.lastElementChild;
-                initTomSelects(newRow, itemIndex);
-                itemIndex++;
-            });
-
-            window.toggleManualItemName = function(value, index) {
-                const manualInput = document.getElementById(`manual_item_name_${index}`);
-                if (!manualInput) return;
-                if (value === 'other') {
-                    manualInput.style.display = 'block';
-                    manualInput.required = true;
-                } else {
-                    manualInput.style.display = 'none';
-                    manualInput.required = false;
-                    manualInput.value = '';
-                }
-            };
-
-            window.toggleManualUom = function(value, index) {
-                const manualInput = document.getElementById(`manual_uom_${index}`);
-                if (!manualInput) return;
-                if (value === 'other') {
-                    manualInput.style.display = 'block';
-                    manualInput.required = true;
-                } else {
-                    manualInput.style.display = 'none';
-                    manualInput.required = false;
-                    manualInput.value = '';
-                }
-            };
-
-            function initTomSelects(rowElement, index) {
-                try {
-                    const uomSelect = rowElement.querySelector('.tomselect-uom');
-                    if (uomSelect && !uomSelect.classList.contains('tomselected')) {
-                        new TomSelect(uomSelect, {
-                            create: false,
-                            sortField: { field: "text", direction: "asc" },
-                            placeholder: "Select UOM",
-                            onChange: function(value) {
-                                window.toggleManualUom(value, index);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error("UOM TomSelect error:", e);
-                }
-
-                try {
-                    const itemSelect = rowElement.querySelector('.tomselect-item');
-                    if (itemSelect && !itemSelect.classList.contains('tomselected')) {
-                        new TomSelect(itemSelect, {
-                            create: false,
-                            sortField: { field: "text", direction: "asc" },
-                            placeholder: "Select Item Name",
-                            onChange: function(value) {
-                                window.toggleManualItemName(value, index);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error("Item TomSelect error:", e);
-                }
-
-                try {
-                    const purposeSelect = rowElement.querySelector('.purpose-select');
-                    if (purposeSelect && !purposeSelect.classList.contains('tomselected')) {
-                        new TomSelect(purposeSelect, {
-                            create: false,
-                            sortField: { field: "text", direction: "asc" },
-                            placeholder: "Select Purpose",
-                            onChange: function(value) {
-                                fetchPurposeBudget(value, index);
-                            }
-                        });
-                    }
-                } catch (e) {
-                    console.error("Purpose TomSelect error:", e);
-                }
-            }
-
-            // Initialize all existing selects
-            document.querySelectorAll('.item-row').forEach((row) => {
-                const idx = row.id.split('-').pop();
-                const selectEl = row.querySelector('.purpose-select');
-                const initialValue = selectEl ? selectEl.value : '';
-                initTomSelects(row, idx);
-                if (initialValue) {
-                    fetchPurposeBudget(initialValue, idx);
-                }
-            });
-
-            // Native/jQuery change listener fallback for purpose-select
-            $(document).on('change', '.purpose-select', function() {
-                const row = this.closest('.item-row');
-                if (row) {
-                    const idx = row.id.split('-').pop();
-                    fetchPurposeBudget(this.value, idx);
-                }
-            });
-
-
-            
-            container.addEventListener('click', function(e) {
-                if (e.target.closest('.remove-item')) {
-                    const row = e.target.closest('.item-row');
-                    const form = document.getElementById('purchase-request-form');
-                    const lockedCount = form.querySelectorAll('.locked-item-row').length;
-                    const editableCount = form.querySelectorAll('.item-row').length;
-                    if (lockedCount + editableCount > 1) {
-                        row.remove();
-                    } else {
-                        alert('At least one item is required.');
-                    }
-                }
-            });
-
-            const saveDraftBtn = document.getElementById('save-draft-btn');
-            if (saveDraftBtn) {
-                saveDraftBtn.addEventListener('click', function (e) {
-                    e.preventDefault();
-
-                    const form = document.getElementById('purchase-request-form');
-
-                    // 1. Remove required from all native form elements
-                    form.querySelectorAll('input[required], select[required], textarea[required]').forEach(function (el) {
-                        el.removeAttribute('required');
                     });
+                }
 
-                    // 2. Inject hidden action=draft
-                    form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
-                    const actionInput = document.createElement('input');
-                    actionInput.type = 'hidden';
-                    actionInput.name = 'action';
-                    actionInput.value = 'draft';
-                    form.appendChild(actionInput);
+                if (addButton) {
+                    addButton.addEventListener('click', function() {
+                        container.insertAdjacentHTML('beforeend', createItemRow(itemIndex));
+                        const newRow = container.lastElementChild;
+                        initTomSelects(newRow, itemIndex);
+                        itemIndex++;
+                    });
+                }
 
-                    // 3. Submit natively
-                    form.submit();
-                });
-            }
+                window.toggleManualItemName = function(value, index) {
+                    const manualInput = document.getElementById(`manual_item_name_${index}`);
+                    if (!manualInput) return;
+                    if (value === 'other') {
+                        manualInput.style.display = 'block';
+                        manualInput.required = true;
+                    } else {
+                        manualInput.style.display = 'none';
+                        manualInput.required = false;
+                        manualInput.value = '';
+                    }
+                };
 
-            const submitBtn = document.getElementById('submit-btn');
-            if (submitBtn) {
-                submitBtn.addEventListener('click', function () {
-                    const form = document.getElementById('purchase-request-form');
-                    if (form) {
-                        form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                window.toggleManualUom = function(value, index) {
+                    const manualInput = document.getElementById(`manual_uom_${index}`);
+                    if (!manualInput) return;
+                    if (value === 'other') {
+                        manualInput.style.display = 'block';
+                        manualInput.required = true;
+                    } else {
+                        manualInput.style.display = 'none';
+                        manualInput.required = false;
+                        manualInput.value = '';
+                    }
+                };
+
+                function initTomSelects(rowElement, index) {
+                    try {
+                        const uomSelect = rowElement.querySelector('.tomselect-uom');
+                        if (uomSelect && !uomSelect.classList.contains('tomselected')) {
+                            new TomSelect(uomSelect, {
+                                create: false,
+                                sortField: { field: "text", direction: "asc" },
+                                placeholder: "Select UOM",
+                                onChange: function(value) {
+                                    window.toggleManualUom(value, index);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error("UOM TomSelect error:", e);
+                    }
+
+                    try {
+                        const itemSelect = rowElement.querySelector('.tomselect-item');
+                        if (itemSelect && !itemSelect.classList.contains('tomselected')) {
+                            new TomSelect(itemSelect, {
+                                create: false,
+                                sortField: { field: "text", direction: "asc" },
+                                placeholder: "Select Item Name",
+                                onChange: function(value) {
+                                    window.toggleManualItemName(value, index);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error("Item TomSelect error:", e);
+                    }
+
+                    try {
+                        const purposeSelect = rowElement.querySelector('.purpose-select');
+                        if (purposeSelect && !purposeSelect.classList.contains('tomselected')) {
+                            new TomSelect(purposeSelect, {
+                                create: false,
+                                sortField: { field: "text", direction: "asc" },
+                                placeholder: "Select Purpose",
+                                onChange: function(value) {
+                                    fetchPurposeBudget(value, index);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.error("Purpose TomSelect error:", e);
+                    }
+                }
+
+                // Initialize all existing selects
+                document.querySelectorAll('.item-row').forEach((row) => {
+                    const idx = row.id.split('-').pop();
+                    const selectEl = row.querySelector('.purpose-select');
+                    const initialValue = selectEl ? selectEl.value : '';
+                    console.log("PageLoad Row idx:", idx, "initialValue:", initialValue);
+                    initTomSelects(row, idx);
+                    if (initialValue) {
+                        fetchPurposeBudget(initialValue, idx);
                     }
                 });
+
+                // Native event delegation fallback for purpose-select
+                document.addEventListener('change', function(e) {
+                    if (e.target && e.target.classList.contains('purpose-select')) {
+                        const row = e.target.closest('.item-row');
+                        if (row) {
+                            const idx = row.id.split('-').pop();
+                            console.log("Change delegate purpose-select val:", e.target.value, "idx:", idx);
+                            fetchPurposeBudget(e.target.value, idx);
+                        }
+                    }
+                });
+
+                if (container) {
+                    container.addEventListener('click', function(e) {
+                        if (e.target.closest('.remove-item')) {
+                            const row = e.target.closest('.item-row');
+                            const form = document.getElementById('purchase-request-form');
+                            const lockedCount = form.querySelectorAll('.locked-item-row').length;
+                            const editableCount = form.querySelectorAll('.item-row').length;
+                            if (lockedCount + editableCount > 1) {
+                                row.remove();
+                            } else {
+                                alert('At least one item is required.');
+                            }
+                        }
+                    });
+                }
+
+                const saveDraftBtn = document.getElementById('save-draft-btn');
+                if (saveDraftBtn) {
+                    saveDraftBtn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        const form = document.getElementById('purchase-request-form');
+                        form.querySelectorAll('input[required], select[required], textarea[required]').forEach(function (el) {
+                            el.removeAttribute('required');
+                        });
+                        form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                        const actionInput = document.createElement('input');
+                        actionInput.type = 'hidden';
+                        actionInput.name = 'action';
+                        actionInput.value = 'draft';
+                        form.appendChild(actionInput);
+                        form.submit();
+                    });
+                }
+
+                const submitBtn = document.getElementById('submit-btn');
+                if (submitBtn) {
+                    submitBtn.addEventListener('click', function () {
+                        const form = document.getElementById('purchase-request-form');
+                        if (form) {
+                            form.querySelectorAll('input[type="hidden"][name="action"]').forEach(el => el.remove());
+                        }
+                    });
+                }
+
             } catch (e) {
                 console.error("PurchaseRequest Edit JS Error:", e);
                 alert("JS Initialization Error: " + e.message);
             }
-        });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initPRPage);
+        } else {
+            initPRPage();
+        }
     </script>
     <style>
         /* To prevent TomSelect dropdown cutoff inside cards */
