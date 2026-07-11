@@ -51,7 +51,7 @@ class RoleFixSeeder extends Seeder
         // Assign permissions ke role procurement_holding
         $procurementHolding = Role::findByName('procurement_holding');
         $procurementHolding->syncPermissions([
-            'view pr', 'edit pr', 'view dashboard', 'view reports',
+            'view pr', 'edit pr', 'approve pr', 'reject pr', 'view dashboard', 'view reports',
         ]);
 
         // Pastikan superadmin punya semua permission

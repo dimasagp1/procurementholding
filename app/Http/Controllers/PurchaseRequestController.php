@@ -29,10 +29,14 @@ use Illuminate\Support\Facades\Notification;
 
 class PurchaseRequestController extends Controller
 {
-    private function getPurposesFromFinance()
+    private function getPurposesFromFinance($company = null)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        if (!$company && Auth::check()) {
+            $company = Auth::user()->company;
+        }
+
+        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
         if (!$apiUrl || !$apiKey) {
             return Purpose::all();
@@ -81,9 +85,9 @@ class PurchaseRequestController extends Controller
         return Purpose::all();
     }
 
-    private function getResponsibleDepartmentForPurpose($purpose, $fallbackDeptId = null, $fallbackDeptName = null)
+    private function getResponsibleDepartmentForPurpose($purpose, $fallbackDeptId = null, $fallbackDeptName = null, $company = null)
     {
-        $purposes = $this->getPurposesFromFinance();
+        $purposes = $this->getPurposesFromFinance($company);
         
         $matched = null;
         if (!empty($fallbackDeptName)) {
@@ -139,10 +143,14 @@ class PurchaseRequestController extends Controller
         ];
     }
 
-    private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null, $reference = null)
+    private function validateBudgetWithFinance($purpose, $requestDate, $requestedAmount = 0, $departmentId = null, $departmentName = null, $reference = null, $company = null)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        if (!$company && Auth::check()) {
+            $company = Auth::user()->company;
+        }
+
+        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
         if (!$apiUrl || !$apiKey) {
             return ['status' => 'success', 'is_allowed' => true];
@@ -218,7 +226,21 @@ class PurchaseRequestController extends Controller
             'items.*.amount' => 'required_with:items|numeric',
         ]);
 
-        if (!Setting::get('finance_api_url', env('FINANCE_API_URL')) || !Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'))) {
+        $company = null;
+        if ($request->reference) {
+            $pr = PurchaseRequest::where('pr_number', $request->reference)->first();
+            if ($pr) {
+                $company = $pr->company;
+            }
+        }
+        if (!$company && Auth::check()) {
+            $company = Auth::user()->company;
+        }
+
+        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+
+        if (!$apiUrl || !$apiKey) {
             return response()->json([
                 'status' => 'error',
                 'message' => 'Konfigurasi API Finance belum lengkap.',
@@ -250,7 +272,7 @@ class PurchaseRequestController extends Controller
             $firstErrorMessage = null;
 
             foreach ($purposeAmounts as $purpose => $amount) {
-                $res = $this->validateBudgetWithFinance($purpose, $request->request_date, $amount, $departmentId, $departmentName, $request->reference);
+                $res = $this->validateBudgetWithFinance($purpose, $request->request_date, $amount, $departmentId, $departmentName, $request->reference, $company);
                 $results[$purpose] = [
                     'is_allowed' => $res['is_allowed'] ?? true,
                     'remaining_budget' => $res['remaining_budget'] ?? null,
@@ -280,7 +302,9 @@ class PurchaseRequestController extends Controller
             $request->request_date,
             $request->requested_amount ?? 0,
             $departmentId,
-            $departmentName
+            $departmentName,
+            $request->reference,
+            $company
         );
 
         return response()->json($result);
@@ -293,15 +317,25 @@ class PurchaseRequestController extends Controller
         $query = PurchaseRequest::with(['user', 'department', 'items'])
             ->where('status', '!=', 'draft');
 
+        $activeCompanyId = session('active_company_id');
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $query->where('company_id', $user->company_id);
+        } else {
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            } elseif ($request->filled('company_id')) {
+                $query->where('company_id', $request->company_id);
+            }
+        }
 
-        if ($user->hasRole('user') && !$user->hasAnyRole(['operational_manager', 'manager_fat', 'general_manager', 'procurement', 'superadmin'])) {
+        if ($user->hasRole('user') && !$user->hasAnyRole(['operational_manager', 'manager_fat', 'general_manager', 'procurement', 'procurement_holding', 'superadmin'])) {
             $query->where('user_id', $user->id);
         } else {
             if (!$request->boolean('awaiting_approval')) {
                 $query->where(function ($q) use ($user) {
                     $q->where('user_id', $user->id); // always can see their own
 
-                    if ($user->hasRole('superadmin') || $user->hasRole('procurement') || $user->hasRole('general_manager')) {
+                    if ($user->hasRole('superadmin') || $user->hasRole('procurement') || $user->hasRole('procurement_holding') || $user->hasRole('general_manager')) {
                         $q->orWhereRaw('1=1'); // can see all
                     } else {
                         if ($user->hasRole('operational_manager')) {
@@ -321,11 +355,11 @@ class PurchaseRequestController extends Controller
         // Awaiting Approval Filter
         if ($request->boolean('awaiting_approval')) {
             if ($user->hasRole('superadmin')) {
-                $query->whereIn('status', ['pending', 'approved_om', 'approved_gm']);
+                $query->whereIn('status', ['pending', 'approved_om', 'approved_gm', 'approved_proc']);
             } else {
                 $query->where(function ($q) use ($user) {
                     if ($user->hasRole('operational_manager')) {
-                        $q->orWhere(function ($subQ) use ($user) {
+                        $q->orWhere(function ($subQ) {
                             $subQ->where('status', 'pending')
                                 ->where('pr_type', 'operational');
                         });
@@ -342,10 +376,12 @@ class PurchaseRequestController extends Controller
                     if ($user->hasRole('procurement')) {
                         $q->orWhere('status', 'approved_gm');
                     }
+                    if ($user->hasRole('procurement_holding')) {
+                        $q->orWhere('status', 'approved_proc');
+                    }
                 });
             }
         }
-
 
         // Department Filter
         if ($request->filled('department_id')) {
@@ -358,9 +394,16 @@ class PurchaseRequestController extends Controller
         }
 
         $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
-        $departments = Department::all();
+        
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $departments = Department::where('company_id', $user->company_id)->get();
+            $companies = collect();
+        } else {
+            $departments = Department::all();
+            $companies = \App\Models\Company::where('is_active', true)->get();
+        }
 
-        return view('purchase_requests.index', compact('purchaseRequests', 'departments'));
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'companies'));
     }
 
 
@@ -369,10 +412,23 @@ class PurchaseRequestController extends Controller
         if (!Auth::user()->department_id) {
             return redirect()->route('dashboard')->with('error', 'Akun Anda belum terhubung dengan Departemen apa pun. Silakan hubungi admin.');
         }
-        $departments = Department::where('is_active', true)->get();
-        $uoms = Uom::all();
+        $companyId = Auth::user()->company_id;
+        $departments = Department::where('is_active', true)
+            ->when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->get();
+        $uoms = Uom::when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->orderBy('name')
+            ->get();
         $purposes = $this->getPurposesFromFinance();
-        $masterItems = \App\Models\MasterItem::orderBy('name')->get();
+        $masterItems = \App\Models\MasterItem::when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->orderBy('name')
+            ->get();
         return view('purchase_requests.create', compact('departments', 'uoms', 'purposes', 'masterItems'));
     }
 
@@ -438,6 +494,7 @@ class PurchaseRequestController extends Controller
             $purchaseRequest = PurchaseRequest::create([
                 'user_id' => Auth::id(),
                 'department_id' => Auth::user()->department_id,
+                'company_id' => Auth::user()->company_id,
                 'request_date' => $request->request_date,
                 'purpose' => $uniquePurposes ?: 'Multi-purpose',
                 'pr_type' => $request->pr_type,
@@ -472,8 +529,8 @@ class PurchaseRequestController extends Controller
                     'attachment' => $attachmentPath,
                     'status' => $isDraft ? 'pending' : 'pending_estimate',
                     'purpose' => $item['purpose'] ?? null,
-                    'rekap_po_odoo' => $request->pr_type === 'operational',
-                    'is_incoming' => $request->pr_type === 'operational',
+                    'rekap_po_odoo' => ($purchaseRequest->company?->connect_odoo ?? false) && ($request->pr_type === 'operational'),
+                    'is_incoming' => ($purchaseRequest->company?->connect_odoo ?? false) && ($request->pr_type === 'operational'),
                 ]);
             }
 
@@ -526,10 +583,23 @@ class PurchaseRequestController extends Controller
                 ->with('error', 'This PR is not in an editable state.');
         }
 
-        $departments = Department::where('is_active', true)->get();
-        $uoms = Uom::all();
+        $companyId = $purchaseRequest->company_id;
+        $departments = Department::where('is_active', true)
+            ->when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->get();
+        $uoms = Uom::when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->orderBy('name')
+            ->get();
         $purposes = $this->getPurposesFromFinance();
-        $masterItems = \App\Models\MasterItem::orderBy('name')->get();
+        $masterItems = \App\Models\MasterItem::when($companyId, function($q) use ($companyId) {
+                $q->where('company_id', $companyId);
+            })
+            ->orderBy('name')
+            ->get();
         $isPending = $purchaseRequest->status === 'pending';
         return view('purchase_requests.edit', compact('purchaseRequest', 'departments', 'uoms', 'purposes', 'isPending', 'masterItems'));
     }
@@ -636,8 +706,8 @@ class PurchaseRequestController extends Controller
                             'attachment' => $attachmentPath,
                             'status' => 'pending',
                             'purpose' => $itemData['purpose'] ?? null,
-                            'rekap_po_odoo' => $purchaseRequest->pr_type === 'operational',
-                            'is_incoming' => $purchaseRequest->pr_type === 'operational',
+                            'rekap_po_odoo' => ($purchaseRequest->company?->connect_odoo ?? false) && ($purchaseRequest->pr_type === 'operational'),
+                            'is_incoming' => ($purchaseRequest->company?->connect_odoo ?? false) && ($purchaseRequest->pr_type === 'operational'),
                         ]);
                         $submittedItemIds[] = $newItem->id;
                     }
@@ -908,6 +978,9 @@ class PurchaseRequestController extends Controller
         } elseif (($user->hasRole('procurement') || $user->hasRole('superadmin')) && $item->status === 'approved_gm') {
             $status = 'rejected_proc';
             $approverRole = 'procurement';
+        } elseif (($user->hasRole('procurement_holding') || $user->hasRole('superadmin')) && $item->status === 'approved_proc') {
+            $status = 'rejected_holding';
+            $approverRole = 'procurement_holding';
         } else {
             return redirect()->back()->with('error', 'Invalid rejection action.');
         }
@@ -1499,17 +1572,28 @@ class PurchaseRequestController extends Controller
         return Excel::download(new PurchaseRequestExport, 'purchase-requests.xlsx');
     }
 
-    public function updateItemStatus(Request $request, PrItem $item, OdooService $odooService)
+    public function updateItemStatus(Request $request, PrItem $item)
     {
         $this->authorize('edit pr', $item->purchaseRequest);
         $user = Auth::user();
+        
+        if (!$user->hasAnyRole(['procurement_holding', 'superadmin'])) {
+            return redirect()->back()->with('error', 'Hanya Procurement Holding yang dapat mengelola tahap Order, Deliver, dan Complete.');
+        }
 
         $request->validate([
             'status' => 'required|in:approved_proc,ordered,delivered,completed'
         ]);
 
+        $company = $item->purchaseRequest->company;
+        $odooService = ($company && $company->connect_odoo) ? new OdooService($company) : null;
+
         $updateData = ['status' => $request->status];
         if ($request->status === 'ordered') {
+            if ($item->status === 'approved_proc' && !$user->hasAnyRole(['procurement_holding', 'superadmin'])) {
+                return redirect()->back()->with('error', 'Hanya Procurement Holding yang dapat melakukan persetujuan Tahap 5.');
+            }
+
             $request->validate([
                 'po_number' => 'nullable|string|max:255',
                 'actual_price' => 'required|numeric|min:0',
@@ -1564,7 +1648,7 @@ class PurchaseRequestController extends Controller
                 }
             }
 
-            if ($item->rekap_po_odoo) {
+            if ($item->rekap_po_odoo && $odooService) {
                 // Set temporary actual_price agar service menggunakan harga terbaru
                 $item->actual_price = $request->actual_price;
                 
@@ -1581,8 +1665,22 @@ class PurchaseRequestController extends Controller
                     \Log::warning("Gagal membuat PO di Odoo API, menggunakan fallback nomor PO manual.");
                 }
             } else {
-                // Non-operational / no odoo sync: langsung gunakan nomor PO manual atau generate fallback
+                // Non-operational / no odoo sync or connect_odoo disabled: gunakan nomor PO manual
                 $poNumber = $request->po_number ?: 'PO-NONOP-' . date('Ymd') . '-' . $item->id;
+            }
+
+            // Record Approval Stage 5
+            if ($item->status === 'approved_proc') {
+                Approval::create([
+                    'purchase_request_id' => $item->purchase_request_id,
+                    'pr_item_id' => $item->id,
+                    'approver_id' => $user->id,
+                    'approver_role' => 'procurement_holding',
+                    'approval_type' => 'holding',
+                    'status' => 'approved',
+                    'notes' => $request->notes ?? 'Approved Stage 5 by Holding Procurement',
+                    'approved_at' => now(),
+                ]);
             }
 
             $updateData['po_number'] = $poNumber;
@@ -1613,6 +1711,20 @@ class PurchaseRequestController extends Controller
                 } else {
                     $gUpdateData['status'] = 'ordered';
                 }
+
+                if ($gModel->status === 'approved_proc') {
+                    Approval::create([
+                        'purchase_request_id' => $gModel->purchase_request_id,
+                        'pr_item_id' => $gModel->id,
+                        'approver_id' => $user->id,
+                        'approver_role' => 'procurement_holding',
+                        'approval_type' => 'holding',
+                        'status' => 'approved',
+                        'notes' => 'Approved Stage 5 by Holding Procurement (Grouped)',
+                        'approved_at' => now(),
+                    ]);
+                }
+
                 $gModel->update($gUpdateData);
             }
 
@@ -1695,7 +1807,7 @@ class PurchaseRequestController extends Controller
         return redirect()->back()->with('success', 'Kuantitas item berhasil diperbarui.');
     }
 
-    public function syncItemToOdoo(Request $request, PrItem $item, OdooService $odooService)
+    public function syncItemToOdoo(Request $request, PrItem $item)
     {
         $this->authorize('edit pr', $item->purchaseRequest);
         $purchaseRequest = $item->purchaseRequest;
@@ -1704,9 +1816,15 @@ class PurchaseRequestController extends Controller
             return redirect()->back()->with('error', 'Item ini tidak ditandai untuk disinkronkan ke Odoo.');
         }
 
+        if (!$purchaseRequest->company || !$purchaseRequest->company->connect_odoo) {
+            return redirect()->back()->with('error', 'Integrasi Odoo tidak diaktifkan untuk perusahaan ini.');
+        }
+
         $request->validate([
             'vendor_name' => 'required|string|max:255'
         ]);
+
+        $odooService = new OdooService($purchaseRequest->company);
 
         // Kirim data ke Odoo dan buat PO otomatis
         $odooPo = $odooService->createPurchaseOrder(
@@ -1729,9 +1847,22 @@ class PurchaseRequestController extends Controller
         return redirect()->back()->with('error', 'Gagal mengirim ke Odoo. Silakan periksa kembali konfigurasi Odoo Anda atau log server.');
     }
 
-    public function getOdooVendors(OdooService $odooService)
+    public function getOdooVendors(Request $request)
     {
         try {
+            $user = Auth::user();
+            $companyId = $request->input('company_id') ?: $user->company_id;
+            $company = $companyId ? \App\Models\Company::find($companyId) : null;
+
+            if (!$company || !$company->connect_odoo) {
+                return response()->json([
+                    'success' => false,
+                    'data' => [],
+                    'message' => 'Integrasi Odoo tidak diaktifkan untuk perusahaan ini.'
+                ]);
+            }
+
+            $odooService = new OdooService($company);
             $vendors = $odooService->getVendors();
             return response()->json([
                 'success' => true,
@@ -2013,20 +2144,38 @@ class PurchaseRequestController extends Controller
 
         $query = PurchaseRequest::with(['user', 'department', 'items'])
             ->whereHas('items', function ($q) {
-                $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc']);
+                $q->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding']);
             });
 
-        if (!$user->hasAnyRole(['superadmin', 'operational_manager', 'manager_fat', 'general_manager', 'procurement'])) {
+        $activeCompanyId = session('active_company_id');
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $query->where('company_id', $user->company_id);
+        } else {
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            } elseif ($request->filled('company_id')) {
+                $query->where('company_id', $request->company_id);
+            }
+        }
+
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding', 'operational_manager', 'manager_fat', 'general_manager', 'procurement'])) {
             $query->where('user_id', $user->id);
         }
 
         $this->applySearchFilter($query, $request->search);
 
         $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
-        $departments = Department::all();
+        
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $departments = Department::where('company_id', $user->company_id)->get();
+            $companies = collect();
+        } else {
+            $departments = Department::all();
+            $companies = \App\Models\Company::where('is_active', true)->get();
+        }
         $title = "Rejected Purchase Requests";
 
-        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title'));
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'companies', 'title'));
     }
 
     public function drafts(Request $request)
@@ -2037,6 +2186,17 @@ class PurchaseRequestController extends Controller
         $query = PurchaseRequest::with(['user', 'department', 'items'])
             ->where('status', 'draft');
 
+        $activeCompanyId = session('active_company_id');
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $query->where('company_id', $user->company_id);
+        } else {
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            } elseif ($request->filled('company_id')) {
+                $query->where('company_id', $request->company_id);
+            }
+        }
+
         if (!$user->hasAnyRole(['superadmin'])) {
             $query->where('user_id', $user->id);
         }
@@ -2044,10 +2204,17 @@ class PurchaseRequestController extends Controller
         $this->applySearchFilter($query, $request->search);
 
         $purchaseRequests = $query->orderBy('updated_at', 'desc')->paginate(10)->withQueryString();
-        $departments = Department::all();
+        
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $departments = Department::where('company_id', $user->company_id)->get();
+            $companies = collect();
+        } else {
+            $departments = Department::all();
+            $companies = \App\Models\Company::where('is_active', true)->get();
+        }
         $title = "Draft Purchase Requests";
 
-        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title'));
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'companies', 'title'));
     }
 
     public function submitDraft(PurchaseRequest $purchaseRequest)
@@ -2103,14 +2270,25 @@ class PurchaseRequestController extends Controller
         $query = PurchaseRequest::with(['user', 'department', 'items'])
             ->where('status', '!=', 'draft');
 
+        $activeCompanyId = session('active_company_id');
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $query->where('company_id', $user->company_id);
+        } else {
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            } elseif ($request->filled('company_id')) {
+                $query->where('company_id', $request->company_id);
+            }
+        }
+
         if ($user->hasRole('superadmin')) {
-            $query->whereIn('status', ['pending', 'approved_om', 'approved_gm']);
+            $query->whereIn('status', ['pending', 'approved_om', 'approved_gm', 'approved_proc']);
         } else {
             $hasApprovalRole = false;
             $query->where(function ($q) use ($user, &$hasApprovalRole) {
                 if ($user->hasRole('operational_manager')) {
                     $hasApprovalRole = true;
-                    $q->orWhere(function ($subQ) use ($user) {
+                    $q->orWhere(function ($subQ) {
                         $subQ->where('status', 'pending')
                             ->where('pr_type', 'operational');
                     });
@@ -2130,6 +2308,10 @@ class PurchaseRequestController extends Controller
                     $hasApprovalRole = true;
                     $q->orWhere('status', 'approved_gm');
                 }
+                if ($user->hasRole('procurement_holding')) {
+                    $hasApprovalRole = true;
+                    $q->orWhere('status', 'approved_proc');
+                }
             });
 
             if (!$hasApprovalRole) {
@@ -2144,11 +2326,18 @@ class PurchaseRequestController extends Controller
         }
 
         $purchaseRequests = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
-        $departments = Department::all();
-        $title = 'Approval Queue (OM/GM)';
+        
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $departments = Department::where('company_id', $user->company_id)->get();
+            $companies = collect();
+        } else {
+            $departments = Department::all();
+            $companies = \App\Models\Company::where('is_active', true)->get();
+        }
+        $title = 'Approval Queue';
         $hideCreateButton = true;
 
-        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'title', 'hideCreateButton'));
+        return view('purchase_requests.index', compact('purchaseRequests', 'departments', 'companies', 'title', 'hideCreateButton'));
     }
 
     public function checkNotifications()
@@ -2371,8 +2560,23 @@ class PurchaseRequestController extends Controller
         if ($procDone && in_array($pr->status, ['pending', 'approved_om', 'approved_gm'])) {
             if ($pr->items()->where('status', 'approved_proc')->exists()) {
                 $pr->update(['status' => 'approved_proc']);
+                // Notify Procurement Holding
+                $holdingProc = User::role(['procurement_holding', 'superadmin'])->get();
+                Notification::send($holdingProc, new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu persetujuan Procurement Holding."));
+                Notification::send($holdingProc, new QueuedMailWrapper(new PrActionRequiredNotification($pr, "PR {$pr->pr_number} menunggu persetujuan Procurement Holding.")));
             } elseif ($pr->items()->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])->count() === $pr->items()->count()) {
                 $pr->update(['status' => 'rejected_proc']);
+            }
+        }
+
+        // 4. Check if Holding stage is done
+        $holdingDone = $pr->items()->whereIn('status', ['pending', 'approved_om', 'approved_gm', 'approved_proc'])->doesntExist();
+        if ($holdingDone && in_array($pr->status, ['pending', 'approved_om', 'approved_gm', 'approved_proc'])) {
+            $allCompleted = $pr->items()->where('status', '!=', 'completed')->doesntExist();
+            if ($allCompleted) {
+                $pr->update(['status' => 'completed']);
+            } elseif ($pr->items()->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding'])->count() === $pr->items()->count()) {
+                $pr->update(['status' => 'rejected_holding']);
             }
         }
 
@@ -2382,8 +2586,15 @@ class PurchaseRequestController extends Controller
 
     private function syncPrExpensesWithFinance(PurchaseRequest $pr)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $company = $pr->company;
+
+        // Guard: only sync if company has Finance integration enabled
+        if (!$company || !$company->connect_finance) {
+            return;
+        }
+
+        $apiUrl = $company->finance_api_url ?: Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company->finance_api_key ?: Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
         if (!$apiUrl || !$apiKey) {
             return;
@@ -2465,8 +2676,9 @@ class PurchaseRequestController extends Controller
 
     private function removePrExpensesFromFinance(PurchaseRequest $pr)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $company = $pr->company;
+        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
         if (!$apiUrl || !$apiKey) {
             return;
@@ -2503,11 +2715,12 @@ class PurchaseRequestController extends Controller
             abort(403, 'Unauthorized action.');
         }
 
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $company = $purchaseRequest->company;
+        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
         if (!$apiUrl || !$apiKey) {
-            return redirect()->back()->with('error', 'Konfigurasi API Finance belum lengkap di Settings.');
+            return redirect()->back()->with('error', 'Konfigurasi API Finance belum lengkap.');
         }
 
         // Only PRs that have committed items (ordered/delivered/completed) can be synced
@@ -2539,13 +2752,6 @@ class PurchaseRequestController extends Controller
     {
         if (!Auth::user()->hasRole('superadmin')) {
             abort(403, 'Unauthorized action.');
-        }
-
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
-
-        if (!$apiUrl || !$apiKey) {
-            return redirect()->back()->with('error', 'Konfigurasi API Finance belum lengkap di Settings.');
         }
 
         // Find all PRs that have at least one committed item

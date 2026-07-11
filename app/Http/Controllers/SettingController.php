@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Setting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Auth;
 
 class SettingController extends Controller
 {
@@ -165,21 +166,37 @@ class SettingController extends Controller
         }
     }
 
-    public function financeBudget()
+    public function companyFinanceBudget(\App\Models\Company $company)
     {
-        return view('settings.finance-budget');
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+        return view('settings.finance-budget', compact('company'));
     }
 
-    public function getFinanceBudgetStatus()
+    private function resolveCompanyFinanceApiConfig(\App\Models\Company $company)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $apiUrl = $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
+        $apiKey = $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
-        \Illuminate\Support\Facades\Log::info("getFinanceBudgetStatus called from Web. apiUrl: {$apiUrl}");
+        return [$apiUrl, $apiKey];
+    }
+
+    public function getCompanyFinanceBudgetStatus(\App\Models\Company $company)
+    {
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        list($apiUrl, $apiKey) = $this->resolveCompanyFinanceApiConfig($company);
+
+        \Illuminate\Support\Facades\Log::info("getCompanyFinanceBudgetStatus called from Web. apiUrl: {$apiUrl}");
 
         if (!$apiUrl || !$apiKey) {
             \Illuminate\Support\Facades\Log::error("API config missing");
-            return response()->json(['success' => false, 'message' => 'Konfigurasi API Finance belum lengkap. Silakan simpan kredensial terlebih dahulu.']);
+            return response()->json(['success' => false, 'message' => 'Konfigurasi API Finance belum lengkap.']);
         }
 
         $statusUrl = str_replace('/check', '/monthly-status', $apiUrl);
@@ -222,10 +239,14 @@ class SettingController extends Controller
         }
     }
 
-    public function generateFinanceBudget()
+    public function generateCompanyFinanceBudget(\App\Models\Company $company)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        list($apiUrl, $apiKey) = $this->resolveCompanyFinanceApiConfig($company);
 
         if (!$apiUrl || !$apiKey) {
             return response()->json(['success' => false, 'message' => 'Konfigurasi API Finance belum lengkap.']);
@@ -268,10 +289,14 @@ class SettingController extends Controller
         }
     }
 
-    public function getFinanceBudgetData()
+    public function getCompanyFinanceBudgetData(\App\Models\Company $company)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        list($apiUrl, $apiKey) = $this->resolveCompanyFinanceApiConfig($company);
 
         if (!$apiUrl || !$apiKey) {
             return response()->json(['success' => false, 'message' => 'Konfigurasi API Finance belum lengkap.']);
@@ -314,10 +339,14 @@ class SettingController extends Controller
         }
     }
 
-    public function getFinanceBudgetDetail(Request $request)
+    public function getCompanyFinanceBudgetDetail(Request $request, \App\Models\Company $company)
     {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        list($apiUrl, $apiKey) = $this->resolveCompanyFinanceApiConfig($company);
 
         if (!$apiUrl || !$apiKey) {
             return response()->json(['success' => false, 'message' => 'Konfigurasi API Finance di .env belum lengkap.']);
@@ -355,7 +384,6 @@ class SettingController extends Controller
                 ], 500);
             }
 
-            // Now, we compute the PROC usage for each category returned by FAT
             $departments = $responseBody['data'];
             $detailedData = [];
 
@@ -364,11 +392,11 @@ class SettingController extends Controller
                 foreach ($dept['categories'] as $cat) {
                     $categoryName = $cat['category_name'];
                     
-                    // Sum the PR items in PROC for this department, category, and month
                     $penggunaan = \App\Models\PrItem::where('purpose', $categoryName)
                         ->where('status', 'not like', 'rejected%')
-                        ->whereHas('purchaseRequest', function($q) use ($year, $month, $dept) {
+                        ->whereHas('purchaseRequest', function($q) use ($year, $month, $dept, $company) {
                             $q->where('status', '!=', 'draft')
+                              ->where('company_id', $company->id)
                               ->whereYear('request_date', $year)
                               ->whereMonth('request_date', $month)
                               ->whereHas('department', function($dq) use ($dept) {
@@ -412,26 +440,14 @@ class SettingController extends Controller
         }
     }
 
-    public function updateFinanceCredentials(Request $request)
+    public function syncCompanyDepartments(\App\Models\Company $company)
     {
-        $request->validate([
-            'finance_api_url' => 'required|url|max:255',
-            'procurement_api_key' => 'required|string|max:255',
-        ]);
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
 
-        Setting::set('finance_api_url', $request->finance_api_url);
-        Setting::set('procurement_api_key', $request->procurement_api_key);
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'Kredensial API Finance berhasil disimpan.',
-        ]);
-    }
-
-    public function syncDepartments()
-    {
-        $apiUrl = Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+        list($apiUrl, $apiKey) = $this->resolveCompanyFinanceApiConfig($company);
 
         if (!$apiUrl || !$apiKey) {
             return response()->json(['status' => 'error', 'message' => 'Konfigurasi API Finance belum lengkap.']);
@@ -458,7 +474,6 @@ class SettingController extends Controller
 
             $responseBody = $response->json();
             
-            // Fallback if the dedicated /departments endpoint is not available or errors
             if (!$response->successful() || !$responseBody || !isset($responseBody['data']) || $responseBody['status'] !== 'success') {
                 $detailUrl = str_replace('/check', '/detail-monthly', $apiUrl);
                 $detailResponse = \Illuminate\Support\Facades\Http::withoutVerifying()
@@ -497,7 +512,10 @@ class SettingController extends Controller
                 $code = !empty($dept['code']) ? $dept['code'] : strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $dept['name']), 0, 10));
                 
                 \App\Models\Department::updateOrCreate(
-                    ['code' => $code],
+                    [
+                        'code' => $code,
+                        'company_id' => $company->id
+                    ],
                     [
                         'name' => $dept['name'],
                         'manager' => $dept['head_name'] ?? ($dept['manager'] ?? null),
@@ -517,6 +535,61 @@ class SettingController extends Controller
                 'status' => 'error',
                 'message' => 'Gagal menghubungi API Finance: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    public function companyOdooVendors(\App\Models\Company $company)
+    {
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $vendors = [];
+        $errorMessage = null;
+
+        $odooService = new \App\Services\OdooService($company);
+
+        try {
+            $vendors = $odooService->getVendorsDetailed();
+        } catch (\Exception $e) {
+            $errorMessage = 'Gagal mengambil data dari Odoo: ' . $e->getMessage();
+        }
+
+        return view('settings.odoo_vendors', compact('vendors', 'errorMessage', 'company'));
+    }
+
+    public function storeCompanyOdooVendor(Request $request, \App\Models\Company $company)
+    {
+        $user = Auth::user();
+        if (!$user->hasAnyRole(['superadmin', 'procurement_holding']) && $user->company_id !== $company->id) {
+            abort(403, 'Unauthorized action.');
+        }
+
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'nullable|email|max:255',
+            'phone' => 'nullable|string|max:100',
+            'mobile' => 'nullable|string|max:100',
+            'street' => 'nullable|string|max:500',
+            'city' => 'nullable|string|max:255',
+            'vat' => 'nullable|string|max:100',
+            'website' => 'nullable|url|max:255',
+        ]);
+
+        $odooService = new \App\Services\OdooService($company);
+
+        try {
+            $partnerId = $odooService->createVendor($request->only([
+                'name', 'email', 'phone', 'mobile', 'street', 'city', 'vat', 'website'
+            ]));
+
+            if ($partnerId) {
+                return redirect()->back()->with('success', 'Vendor baru berhasil didaftarkan ke Odoo!');
+            }
+            return redirect()->back()->with('error', 'Gagal membuat vendor di Odoo.');
+        } catch (\Exception $e) {
+            return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
         }
     }
 
@@ -599,44 +672,4 @@ class SettingController extends Controller
         }
     }
 
-    public function odooVendors(\App\Services\OdooService $odooService)
-    {
-        $vendors = [];
-        $errorMessage = null;
-
-        try {
-            $vendors = $odooService->getVendorsDetailed();
-        } catch (\Exception $e) {
-            $errorMessage = 'Gagal mengambil data dari Odoo: ' . $e->getMessage();
-        }
-
-        return view('settings.odoo_vendors', compact('vendors', 'errorMessage'));
-    }
-
-    public function storeOdooVendor(Request $request, \App\Services\OdooService $odooService)
-    {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'nullable|email|max:255',
-            'phone' => 'nullable|string|max:100',
-            'mobile' => 'nullable|string|max:100',
-            'street' => 'nullable|string|max:500',
-            'city' => 'nullable|string|max:255',
-            'vat' => 'nullable|string|max:100',
-            'website' => 'nullable|url|max:255',
-        ]);
-
-        try {
-            $partnerId = $odooService->createVendor($request->only([
-                'name', 'email', 'phone', 'mobile', 'street', 'city', 'vat', 'website'
-            ]));
-
-            if ($partnerId) {
-                return redirect()->back()->with('success', 'Vendor baru berhasil didaftarkan ke Odoo!');
-            }
-            return redirect()->back()->with('error', 'Gagal membuat vendor di Odoo.');
-        } catch (\Exception $e) {
-            return redirect()->back()->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
-        }
-    }
 }

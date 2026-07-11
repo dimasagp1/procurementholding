@@ -99,7 +99,7 @@
                                         </form>
                                     @endif
 
-                                    @if(auth()->user()->hasRole('superadmin') && $purchaseRequest->items->whereIn('status', ['ordered', 'delivered', 'completed'])->isNotEmpty())
+                                    @if(auth()->user()->hasRole('superadmin') && $purchaseRequest->company?->connect_finance && $purchaseRequest->items->whereIn('status', ['ordered', 'delivered', 'completed'])->isNotEmpty())
                                         <form action="{{ route('purchase-requests.sync-expense', $purchaseRequest) }}" method="POST" class="d-inline form-confirm" data-message="Sync expense PR ini ke sistem pagu Finance? Ini akan mengirimkan ulang data pengeluaran PR ini ke FAT.">
                                             @csrf
                                             <button type="submit" class="btn btn-sm" style="background-color: #6f42c1; color: white;" title="Sync pengeluaran PR lama ke sistem pagu Finance (Maintenance)">
@@ -135,7 +135,7 @@
                 $showBudgetDetails = $purchaseRequest->status !== 'draft' && (
                     Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']) ||
                     Auth::id() === $purchaseRequest->user_id
-                ) && !Auth::user()->hasRole('procurement_holding');
+                ) && !Auth::user()->hasRole('procurement_holding') && ($purchaseRequest->company?->connect_finance ?? false);
                 $isManagerOrAdmin = Auth::user()->hasRole(['procurement', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']) && !Auth::user()->hasRole('procurement_holding');
             @endphp
 
@@ -195,7 +195,7 @@
                                     <th>Keterangan</th>
                                     <th>Qty/UOM</th>
                                     @if(Auth::user()->hasRole(['procurement', 'procurement_holding', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
-                                        <th>Harga</th>
+                                        <th>{{ ($purchaseRequest->company?->connect_finance ?? false) ? 'Harga' : 'Setting' }}</th>
                                     @endif
                                     <th>Due Date</th>
                                     <th>Rencana Kedatangan</th>
@@ -345,18 +345,23 @@
                                         @endif
                                     </td>
                                     @if(Auth::user()->hasRole(['procurement', 'procurement_holding', 'superadmin', 'operational_manager', 'manager_fat', 'general_manager']))
-                                        <td data-label="Harga">
+                                        <td data-label="{{ ($purchaseRequest->company?->connect_finance ?? false) ? 'Harga' : 'Setting' }}">
                                             @if($item->status === 'pending_estimate' && (Auth::user()->hasRole('procurement') || Auth::user()->hasRole('procurement_holding') || Auth::user()->hasRole('superadmin')))
                                                 <div class="form-group mb-0">
+                                                    @if($purchaseRequest->company?->connect_finance)
                                                     <div class="input-group input-group-sm" style="min-width: 140px; max-width: 180px;">
                                                         <div class="input-group-prepend">
                                                             <span class="input-group-text bg-secondary text-white" style="font-size: 0.75rem; border-color: rgba(255,255,255,0.1);">Rp</span>
                                                         </div>
                                                         <input type="number" step="0.01" name="estimates[{{ $item->id }}][estimated_price]" class="form-control form-control-sm estimate-price-input text-white" placeholder="Harga Estimasi" value="{{ $item->estimated_price ?: '' }}" required data-id="{{ $item->id }}" data-qty="{{ $item->quantity }}" data-purpose="{{ $item->purpose }}" form="estimates-submit-form" style="background-color: #1a1d24; border: 1px solid rgba(255,255,255,0.1); font-size: 0.75rem;">
                                                     </div>
+                                                    @else
+                                                    <input type="hidden" name="estimates[{{ $item->id }}][estimated_price]" value="0" form="estimates-submit-form">
+                                                    @endif
                                                     
                                                     <!-- Integrated Checklists (Odoo PO & Incoming) -->
-                                                    <div class="d-flex mt-2 align-items-center justify-content-between" style="min-width: 140px; max-width: 180px;">
+                                                    <div class="d-flex mt-2 align-items-center justify-content-start" style="min-width: 140px; max-width: 180px; gap: 15px;">
+                                                        @if($purchaseRequest->company?->connect_odoo)
                                                         <!-- Odoo PO Checklist (Red Accent) -->
                                                         <div class="custom-control custom-checkbox custom-checkbox-danger" style="user-select: none;">
                                                             <input type="checkbox" 
@@ -370,6 +375,7 @@
                                                                 PO Odoo
                                                             </label>
                                                         </div>
+                                                        @endif
                                                         
                                                         <!-- Incoming Checklist (Green Accent) -->
                                                         <div class="custom-control custom-checkbox custom-checkbox-success" style="user-select: none;">
@@ -386,24 +392,29 @@
                                                         </div>
                                                     </div>
 
+                                                    @if($purchaseRequest->company?->connect_finance)
                                                     <div class="text-xs text-muted mt-1 total-estimate-display" id="total-estimate-{{ $item->id }}" style="font-size: 0.7rem;">
                                                         Total: Rp {{ number_format($item->quantity * ($item->estimated_price ?: 0), 0, ',', '.') }}
                                                     </div>
                                                     <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
+                                                    @endif
                                                 </div>
                                             @elseif($item->status === 'pending_estimate')
                                                 <span class="text-warning text-xs font-italic"><i class="fas fa-hourglass-half mr-1"></i> Menunggu Estimasi</span>
                                                 <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
                                                 <div class="d-flex align-items-center flex-wrap mt-1" style="gap: 5px;">
+                                                    @if($purchaseRequest->company?->connect_odoo)
                                                     <span class="badge {{ $item->rekap_po_odoo ? 'badge-danger' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
                                                         {{ $item->rekap_po_odoo ? 'PO Odoo' : 'No PO Odoo' }}
                                                     </span>
+                                                    @endif
                                                     <span class="badge {{ $item->is_incoming ? 'badge-success' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
                                                         {{ $item->is_incoming ? 'Incoming' : 'No Incoming' }}
                                                     </span>
                                                 </div>
                                             @else
                                                 <div class="text-xs">
+                                                    @if($purchaseRequest->company?->connect_finance)
                                                     <span class="text-gray-400">Est:</span> <strong>Rp {{ number_format($item->estimated_price, 0, ',', '.') }}</strong>
                                                     <br><span class="text-gray-500">(Total: Rp {{ number_format($item->total_price, 0, ',', '.') }})</span>
                                                     <div class="mt-1 smart-budget-alert" id="smart-budget-alert-{{ $item->id }}" style="min-width: 140px;"></div>
@@ -413,11 +424,13 @@
                                                             <br><span class="text-success small">(Total: Rp {{ number_format($item->actual_total_price, 0, ',', '.') }})</span>
                                                         </div>
                                                     @endif
+                                                    @endif
                                                     
                                                     @if(!Auth::user()->hasRole('procurement_holding'))
-                                                        <div class="mt-2 pt-1 border-top border-secondary border-dashed" style="border-top-style: dashed !important;">
+                                                        <div class="mt-2 pt-1 {{ $purchaseRequest->company?->connect_finance ? 'border-top border-secondary border-dashed' : '' }}" style="{{ $purchaseRequest->company?->connect_finance ? 'border-top-style: dashed !important;' : '' }}">
                                                             @if(Auth::user()->hasAnyRole(['procurement', 'superadmin']))
-                                                                <div class="d-flex align-items-center justify-content-between flex-wrap" style="gap: 8px;">
+                                                                <div class="d-flex align-items-center justify-content-start flex-wrap" style="gap: 15px;">
+                                                                    @if($purchaseRequest->company?->connect_odoo)
                                                                     <div class="custom-control custom-checkbox custom-checkbox-danger" style="user-select: none;">
                                                                         <input type="checkbox" 
                                                                                 name="rekap_po_odoo" 
@@ -430,6 +443,7 @@
                                                                             PO Odoo
                                                                         </label>
                                                                     </div>
+                                                                    @endif
                                                                     <div class="custom-control custom-checkbox custom-checkbox-success" style="user-select: none;">
                                                                         <input type="checkbox" 
                                                                                 name="is_incoming" 
@@ -445,9 +459,11 @@
                                                                 </div>
                                                             @else
                                                                 <div class="d-flex align-items-center flex-wrap" style="gap: 5px;">
+                                                                    @if($purchaseRequest->company?->connect_odoo)
                                                                     <span class="badge {{ $item->rekap_po_odoo ? 'badge-danger' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
                                                                         {{ $item->rekap_po_odoo ? 'PO Odoo' : 'No PO Odoo' }}
                                                                     </span>
+                                                                    @endif
                                                                     <span class="badge {{ $item->is_incoming ? 'badge-success' : 'badge-secondary' }}" style="font-size: 0.65rem; padding: 2px 4px;">
                                                                         {{ $item->is_incoming ? 'Incoming' : 'No Incoming' }}
                                                                     </span>
@@ -495,14 +511,14 @@
                                                 'rejected_om'   => $isFatPr ? 'Rejected FAT' : 'Rejected OM',
                                                 'approved_gm'   => 'Approved GM',
                                                 'rejected_gm'   => 'Rejected GM',
-                                                'approved_proc' => 'Approved Proc',
+                                                'approved_proc' => 'Menunggu Procurement Holding',
                                                 'rejected_proc' => 'Rejected Proc',
                                                 'ordered'       => 'Ordered',
                                                 'delivered'     => 'Delivered',
                                                 'completed'     => 'Completed',
                                             ];
                                             $statusLabel = $statusLabels[$item->status] ?? ucfirst(str_replace('_', ' ', $item->status));
-                                            $badgeColor = $item->status === 'pending' ? 'warning'
+                                            $badgeColor = in_array($item->status, ['pending', 'approved_proc']) ? 'warning'
                                                 : (in_array($item->status, ['rejected_om','rejected_gm','rejected_proc']) ? 'danger' : 'success');
                                         @endphp
                                         <span class="badge badge-{{ $badgeColor }}">
@@ -626,8 +642,8 @@
                                             </form>
                                         @endif
 
-                                        @if(($isProc || $isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
-                                            @if($isProc || $isSuperadmin)
+                                        @if(($isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
+                                            @if($isProcHolding || $isSuperadmin)
                                                 <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                     @csrf
                                                     <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
@@ -648,7 +664,7 @@
                                             @endif
                                             
                                             @if(in_array($item->status, ['ordered', 'delivered']))
-                                                @if(!$item->po_number && ($isProc || $isSuperadmin))
+                                                @if(!$item->po_number && ($isProcHolding || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> 
                                                         @if($item->is_incoming)
@@ -688,7 +704,7 @@
                                         @if($item->po_number)
                                             <div class="mt-2 text-info text-xs font-weight-bold d-flex align-items-center justify-content-between flex-wrap">
                                                 <span>PO: {{ $item->po_number }}</span>
-                                                @if(($isProc || $isSuperadmin) && $item->rekap_po_odoo && in_array($item->status, ['ordered', 'delivered', 'completed']))
+                                                @if(($isProcHolding || $isSuperadmin) && $item->rekap_po_odoo && in_array($item->status, ['ordered', 'delivered', 'completed']))
                                                     <button type="button" class="btn btn-outline-warning btn-xs ml-1" data-toggle="modal" data-target="#syncOdooModal-{{ $item->id }}" title="Kirim/Sync ulang ke Odoo">
                                                         <i class="fas fa-sync-alt"></i> Kirim ke Odoo
                                                     </button>

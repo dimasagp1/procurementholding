@@ -2,46 +2,37 @@
     <!-- Session Status -->
     <x-auth-session-status class="mb-6 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 p-4 font-medium" :status="session('status')" />
 
-    <form method="POST" action="{{ route('login') }}" class="space-y-6">
+    <form method="POST" action="{{ route('login') }}" class="space-y-5">
         @csrf
 
         <!-- Email Address -->
         <div>
-            <label for="email" class="block text-sm font-medium text-slate-300 mb-2">{{ __('Email Address') }}</label>
+            <label for="email" class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{{ __('Email Address') }}</label>
             <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
                         <path d="M3 4a2 2 0 00-2 2v1.161l8.441 4.221a1.25 1.25 0 001.118 0L19 7.162V6a2 2 0 00-2-2H3z" />
                         <path d="M19 8.839l-7.77 3.885a2.75 2.75 0 01-2.46 0L1 8.839V14a2 2 0 002 2h14a2 2 0 002-2V8.839z" />
                     </svg>
                 </div>
-                <input id="email" class="block w-full pl-11" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username" placeholder="Enter your email" />
+                <input id="email" class="block w-full pl-11" type="email" name="email" value="{{ old('email') }}" required autofocus autocomplete="username" placeholder="name@company.com" />
             </div>
             <x-input-error :messages="$errors->get('email')" class="mt-2 text-red-400 text-sm" />
         </div>
 
         <!-- Password -->
         <div>
-            <div class="flex items-center justify-between mb-2">
-                <label for="password" class="block text-sm font-medium text-slate-300">{{ __('Password') }}</label>
-                @if (Route::has('password.request'))
-                    <a class="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors" href="{{ route('password.request') }}">
-                        {{ __('Forgot password?') }}
-                    </a>
-                @endif
-            </div>
-
+            <label for="password" class="block text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">{{ __('Password') }}</label>
             <div class="relative">
-                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
                         <path fill-rule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clip-rule="evenodd" />
                     </svg>
                 </div>
-                <!-- Input with padding for left icon and right eye toggle -->
                 <input id="password" class="block w-full pl-11 pr-10"
                                 type="password"
                                 name="password"
-                                required autocomplete="current-password" placeholder="Enter your password" />
+                                required autocomplete="current-password" placeholder="••••••••" />
                 
                 <button type="button" class="eye-toggle" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">
                     <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
@@ -53,16 +44,20 @@
                     </svg>
                 </button>
             </div>
-
             <x-input-error :messages="$errors->get('password')" class="mt-2 text-red-400 text-sm" />
         </div>
 
-        <!-- Remember Me -->
-        <div class="flex items-center">
-            <label for="remember_me" class="inline-flex items-center cursor-pointer group">
-                <input id="remember_me" type="checkbox" class="custom-checkbox" name="remember">
-                <span class="ms-3 text-sm text-slate-400 group-hover:text-slate-300 transition-colors">{{ __('Remember me') }}</span>
-            </label>
+        <!-- Remember Me & Forgot Password -->
+        <div class="flex items-center justify-between pt-1">
+            <div class="flex items-center">
+                <input id="remember_me" type="checkbox" name="remember" class="w-4 h-4 rounded border-slate-700 bg-slate-900/50 text-blue-500 focus:ring-blue-500/20 cursor-pointer">
+                <label for="remember_me" class="ms-2 text-sm text-slate-400 hover:text-slate-300 cursor-pointer select-none">{{ __('Remember me') }}</label>
+            </div>
+            @if (Route::has('password.request'))
+                <a class="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors" href="{{ route('password.request') }}">
+                    {{ __('Forgot password?') }}
+                </a>
+            @endif
         </div>
 
         <div class="pt-2">

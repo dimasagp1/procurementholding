@@ -14,12 +14,18 @@ class Department extends Model
         'name',
         'manager',
         'description',
-        'is_active'
+        'is_active',
+        'company_id'
     ];
 
     protected $casts = [
         'is_active' => 'boolean'
     ];
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 
     public function users()
     {

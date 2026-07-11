@@ -2,9 +2,9 @@
     <x-slot name="header">
         <div class="d-flex justify-content-between align-items-center flex-wrap">
             <h2 class="font-semibold text-xl text-gray-800 leading-tight mb-0">
-                {{ __('Odoo ERP Vendors') }}
+                {{ __('Odoo ERP Vendors') }} - {{ $company->name }}
             </h2>
-            @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+            @if(Auth::user()->hasAnyRole(['superadmin', 'procurement', 'procurement_holding']))
                 <button type="button" class="btn btn-primary btn-sm shadow-sm" data-toggle="modal" data-target="#addVendorModal">
                     <i class="fas fa-plus mr-1"></i> Tambah Vendor ke Odoo
                 </button>
@@ -35,7 +35,7 @@
             @if(isset($errorMessage) && $errorMessage)
                 <div class="alert alert-warning shadow-sm" role="alert">
                     <i class="fas fa-exclamation-circle mr-2"></i> <strong>Koneksi Odoo Terkendala:</strong> {{ $errorMessage }}
-                    <p class="mb-0 mt-2 text-sm">Harap periksa kembali pengaturan kredensial integrasi Odoo Anda di halaman <a href="{{ route('settings.general') }}" class="font-weight-bold text-dark">General Settings</a>.</p>
+                    <p class="mb-0 mt-2 text-sm">Harap periksa kembali pengaturan kredensial integrasi Odoo Anda di halaman <a href="{{ route('companies.edit', $company) }}" class="font-weight-bold text-dark">Company Edit</a>.</p>
                 </div>
             @endif
 
@@ -129,11 +129,11 @@
         </div>
     </div>
 
-    @if(Auth::user()->hasAnyRole(['superadmin', 'procurement']))
+    @if(Auth::user()->hasAnyRole(['superadmin', 'procurement', 'procurement_holding']))
         <!-- Add Vendor Modal -->
         <div class="modal fade" id="addVendorModal" tabindex="-1" role="dialog" aria-labelledby="addVendorModalLabel" aria-hidden="true">
             <div class="modal-dialog modal-lg" role="document">
-                <form action="{{ route('settings.odoo-vendors.store') }}" method="POST">
+                <form action="{{ route('companies.vendors.store', $company) }}" method="POST">
                     @csrf
                     <div class="modal-content" style="background-color: #222630; color: #f8fafc; border: 1px solid rgba(255,255,255,0.1); border-radius: 15px;">
                         <div class="modal-header border-bottom-0">

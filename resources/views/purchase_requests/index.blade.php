@@ -74,7 +74,7 @@
                                         </div>
                                     </div>
 
-                                    <div class="col-md-3 col-6 mb-2">
+                                     <div class="col-md-3 col-6 mb-2">
                                         <label for="status" class="form-label font-weight-bold small text-uppercase opacity-75">Status</label>
                                         <select name="status" id="status" class="form-control form-control-sm">
                                             <option value="">All Status</option>
@@ -84,11 +84,23 @@
                                             <option value="rejected_om" {{ request('status') == 'rejected_om' ? 'selected' : '' }}>Rejected (L1)</option>
                                             <option value="approved_gm" {{ request('status') == 'approved_gm' ? 'selected' : '' }}>Approved (GM)</option>
                                             <option value="rejected_gm" {{ request('status') == 'rejected_gm' ? 'selected' : '' }}>Rejected (GM)</option>
-                                            <option value="approved_proc" {{ request('status') == 'approved_proc' ? 'selected' : '' }}>Approved (Proc)</option>
+                                            <option value="approved_proc" {{ request('status') == 'approved_proc' ? 'selected' : '' }}>Menunggu Procurement Holding</option>
                                             <option value="rejected_proc" {{ request('status') == 'rejected_proc' ? 'selected' : '' }}>Rejected (Proc)</option>
                                             <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>Completed</option>
                                         </select>
                                     </div>
+
+                                    @if(auth()->user()->hasAnyRole(['superadmin', 'procurement_holding']) && isset($companies) && $companies->isNotEmpty())
+                                    <div class="col-md-3 col-6 mb-2">
+                                        <label for="company_id" class="form-label font-weight-bold small text-uppercase opacity-75">Company</label>
+                                        <select name="company_id" id="company_id" class="form-control form-control-sm">
+                                            <option value="">All Companies</option>
+                                            @foreach($companies as $c)
+                                                <option value="{{ $c->id }}" {{ request('company_id') == $c->id ? 'selected' : '' }}>{{ $c->code }} - {{ $c->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    @endif
 
                                     <div class="col-md-4 col-6 mb-2">
                                         <label class="d-none d-md-block" style="opacity:0;">.</label>
@@ -139,6 +151,7 @@
                                 <tr>
                                     <th>PR Number</th>
                                     <th>Date</th>
+                                    <th>Company</th>
                                     <th>Requester</th>
                                     <th>Department</th>
                                     <th>Status</th>
@@ -150,6 +163,7 @@
                                 <tr>
                                     <td data-label="PR No."><strong>{{ $pr->pr_number }}</strong></td>
                                     <td data-label="Date">{{ $pr->request_date->format('d M Y') }}</td>
+                                    <td data-label="Company">{{ $pr->company->code ?? '-' }}</td>
                                     <td data-label="Requester">{{ $pr->user->name }}</td>
                                     <td data-label="Dept.">{{ $pr->department->code }}</td>
                                     <td data-label="Status">
@@ -166,7 +180,8 @@
                                                 'Revision Required' => 'badge-danger',
                                                 'Partial / Revision' => 'badge-warning',
                                                 'Processing' => 'badge-info',
-                                                'Approved (OM)', 'Approved (FAT)', 'Approved (GM)', 'Approved (Proc)' => 'badge-info',
+                                                'Approved (OM)', 'Approved (FAT)', 'Approved (GM)' => 'badge-info',
+                                                'Menunggu Procurement Holding' => 'badge-warning',
                                                 'Ordered' => 'badge-primary',
                                                 'Delivered' => 'badge-teal',
                                                 'Completed' => 'badge-success',

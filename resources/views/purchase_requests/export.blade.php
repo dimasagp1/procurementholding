@@ -197,10 +197,17 @@
     <table class="header-table">
         <tr>
             <td width="70%">
-                <div class="company-name">PT. HERBATECH INNOPHARMA INDUSTRY</div>
-                <div class="company-address">
-                    Jl. Pramuka Rt 01 Rw 10, Toyareka, Kec. Kemangkon, Kabupaten Purbalingga,<br>
-                    Jawa Tengah 53381, Indonesia
+                @php
+                    $printCompany = $purchaseRequest->company;
+                @endphp
+                <div class="company-name">{{ strtoupper($printCompany->name ?? 'PT. HERBATECH INNOPHARMA INDUSTRY') }}</div>
+                @if($printCompany && $printCompany->description)
+                    <div class="company-address">{{ $printCompany->description }}</div>
+                @else
+                    <div class="company-address" style="color:#aaa; font-style:italic;">—</div>
+                @endif
+                <div style="font-size:6pt; color:#666; margin-top:2px;">
+                    Kode Perusahaan: <strong>{{ $printCompany->code ?? '' }}</strong>
                 </div>
             </td>
             <td width="30%" class="logo-container">
@@ -244,11 +251,20 @@
         </tr>
     </table>
 
+
     <div class="document-title">SURAT PERMINTAAN PEMBELIAN</div>
 
     <div class="clearfix">
         <div class="meta-container">
             <table class="meta-table">
+                <tr>
+                    <td class="meta-label">Perusahaan</td>
+                    <td>: {{ $purchaseRequest->company->name ?? '-' }}</td>
+                </tr>
+                <tr>
+                    <td class="meta-label">Kode</td>
+                    <td>: {{ $purchaseRequest->company->code ?? '-' }}</td>
+                </tr>
                 <tr>
                     <td class="meta-label">No. PR</td>
                     <td>: {{ $purchaseRequest->pr_number }}</td>
@@ -433,7 +449,7 @@
     </table>
 
     <div style="margin-top: 30px; font-size: 7pt; text-align: center; color: #999;">
-        Sistem PR PT. Herbatech Innopharma Industry - Printed: {{ now()->format('d/m/Y H:i') }}
+        Sistem PR {{ $purchaseRequest->company->name ?? 'PT. Herbatech Innopharma Industry' }} ({{ $purchaseRequest->company->code ?? '' }}) — Printed: {{ now()->format('d/m/Y H:i') }}
     </div>
 
 </body>

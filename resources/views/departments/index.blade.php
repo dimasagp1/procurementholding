@@ -22,6 +22,7 @@
                                 <th>#</th>
                                 <th>Code</th>
                                 <th>Name</th>
+                                <th>Company</th>
                                 <th>Manager</th>
                                 <th>Status</th>
                                 <th>Actions</th>
@@ -33,6 +34,7 @@
                                 <td data-label="ID">{{ $dept->id }}</td>
                                 <td data-label="Code"><strong>{{ $dept->code }}</strong></td>
                                 <td data-label="Name">{{ $dept->name }}</td>
+                                <td data-label="Company">{{ $dept->company->name ?? '-' }}</td>
                                 <td data-label="Manager">{{ $dept->manager ?? '-' }}</td>
                                 <td data-label="Status">
                                     @if($dept->is_active)

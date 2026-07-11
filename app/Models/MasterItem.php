@@ -6,5 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 
 class MasterItem extends Model
 {
-    protected $fillable = ['name'];
+    protected $fillable = ['name', 'company_id'];
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 }

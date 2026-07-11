@@ -14,13 +14,15 @@ class OdooService
     protected $username;
     protected $password;
     protected $uid;
+    protected $odoo_company_id;
 
-    public function __construct()
+    public function __construct(\App\Models\Company $company = null)
     {
-        $this->url = Setting::get('odoo_url', env('ODOO_URL'));
-        $this->db = Setting::get('odoo_db', env('ODOO_DB'));
-        $this->username = Setting::get('odoo_username', env('ODOO_USERNAME'));
-        $this->password = Setting::get('odoo_password', env('ODOO_PASSWORD'));
+        $this->url = $company && $company->odoo_url ? $company->odoo_url : Setting::get('odoo_url', env('ODOO_URL'));
+        $this->db = $company && $company->odoo_db ? $company->odoo_db : Setting::get('odoo_db', env('ODOO_DB'));
+        $this->username = $company && $company->odoo_username ? $company->odoo_username : Setting::get('odoo_username', env('ODOO_USERNAME'));
+        $this->password = $company && $company->odoo_password ? $company->odoo_password : Setting::get('odoo_password', env('ODOO_PASSWORD'));
+        $this->odoo_company_id = $company ? $company->odoo_company_id : null;
     }
 
     /**
@@ -197,6 +199,10 @@ class OdooService
             'date_order' => now()->format('Y-m-d H:i:s'),
             'order_line' => $orderLines
         ];
+
+        if ($this->odoo_company_id) {
+            $poData['company_id'] = $this->odoo_company_id;
+        }
 
         // Buat Purchase Order di Odoo
         $odooPoId = $this->execute('purchase.order', 'create', [$poData]);

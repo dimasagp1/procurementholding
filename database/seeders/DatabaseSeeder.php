@@ -53,10 +53,20 @@ class DatabaseSeeder extends Seeder
         $managerFat = Role::create(['name' => 'manager_fat']);
         $generalManager = Role::create(['name' => 'general_manager']);
         $procurement = Role::create(['name' => 'procurement']);
+        $procurementHolding = Role::create(['name' => 'procurement_holding']);
         $userRole = Role::create(['name' => 'user']);
 
         // Assign permissions to roles
         $superadmin->givePermissionTo(Permission::all());
+
+        $procurementHolding->givePermissionTo([
+            'view pr',
+            'edit pr',
+            'approve pr',
+            'reject pr',
+            'view dashboard',
+            'view reports',
+        ]);
 
         $operationalManager->givePermissionTo([
             'create pr',

@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl leading-tight">
-            {{ __('Add Master Item') }}
+            {{ __('Add Master Item') }} - {{ $company ? $company->name : 'All Companies' }}
         </h2>
     </x-slot>
 

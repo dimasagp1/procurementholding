@@ -13,6 +13,19 @@
                         @csrf
 
                         <div class="row">
+                             <div class="col-md-6 mb-3">
+                                <label for="company_id" class="form-label">Company</label>
+                                <select class="form-control @error('company_id') is-invalid @enderror" id="company_id" name="company_id" required>
+                                    <option value="">Select Company</option>
+                                    @foreach($companies as $company)
+                                        <option value="{{ $company->id }}" {{ old('company_id') == $company->id ? 'selected' : '' }}>
+                                            {{ $company->name }} ({{ $company->code }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('company_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+
                             <div class="col-md-6 mb-3">
                                 <label for="code" class="form-label">Department Code</label>
                                 <input type="text" class="form-control @error('code') is-invalid @enderror" id="code" name="code" value="{{ old('code') }}" required maxlength="10">

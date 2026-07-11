@@ -1,9 +1,16 @@
 <x-app-layout>
     <x-slot name="header">
         <div class="d-flex justify-content-between align-items-center">
-            <h2 class="font-weight-bold tracking-tight mb-0">
-                {{ __('Overview') }}
-            </h2>
+            <div class="d-flex align-items-center" style="gap: 0.6rem;">
+                <h2 class="font-weight-bold tracking-tight mb-0">
+                    {{ $pageTitle }}
+                </h2>
+                @if($pageSubtitle)
+                    <span class="badge badge-secondary" style="font-size: 0.75rem; letter-spacing: 0.05em;">
+                        {{ $pageSubtitle }}
+                    </span>
+                @endif
+            </div>
             <div class="d-none d-md-block text-muted text-sm">
                 <i class="far fa-calendar-alt mr-1"></i> {{ \Carbon\Carbon::now()->format('l, d F Y') }}
             </div>
@@ -563,6 +570,7 @@
                                 <tr>
                                     <th class="pl-4">PR Number</th>
                                     <th>Date</th>
+                                    <th>Company</th>
                                     <th>Requester</th>
                                     <th>Department</th>
                                     <th>Status</th>
@@ -574,6 +582,7 @@
                                 <tr>
                                     <td data-label="PR No." class="pl-4 font-weight-medium text-white">{{ $pr->pr_number ?? 'Pending' }}</td>
                                     <td data-label="Date" class="text-muted">{{ $pr->created_at->format('d M Y') }}</td>
+                                    <td data-label="Company">{{ $pr->company->code ?? '-' }}</td>
                                     <td data-label="Requester">
                                         <div class="d-flex align-items-center justify-content-end">
                                             <div class="bg-primary-soft text-primary-accent rounded-circle d-flex align-items-center justify-content-center mr-2" style="width: 24px; height: 24px; font-weight: 600; font-size: 0.72rem; flex-shrink:0;">
@@ -632,7 +641,7 @@
                                 </tr>
                                 {{-- Expanded accordion row --}}
                                 <tr class="tr-expand">
-                                    <td colspan="6" class="p-0" style="border: none;">
+                                    <td colspan="7" class="p-0" style="border: none;">
                                         <div id="dash-pr-details-{{ $pr->id }}" class="collapse">
                                             <div class="detail-panel-inner rounded shadow border-0" style="background-color: rgba(0,0,0,0.18); margin: 0.5rem 0;">
                                                 @if($pr->items->count() > 0)
@@ -681,7 +690,7 @@
                                 </tr>
                                 @empty
                                 <tr>
-                                    <td colspan="6" class="text-center py-5 text-muted">
+                                    <td colspan="7" class="text-center py-5 text-muted">
                                         <i class="far fa-folder-open mb-3" style="font-size: 2.5rem; opacity: 0.5;"></i>
                                         <p class="mb-0 font-weight-medium">No recent records found.</p>
                                     </td>

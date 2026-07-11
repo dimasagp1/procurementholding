@@ -10,14 +10,22 @@ class DepartmentController extends Controller
     public function index()
     {
         $this->authorize('view departments');
-        $departments = Department::paginate(10);
+        $query = Department::with('company');
+        
+        $activeCompanyId = session('active_company_id');
+        if ($activeCompanyId) {
+            $query->where('company_id', $activeCompanyId);
+        }
+        
+        $departments = $query->paginate(10);
         return view('departments.index', compact('departments'));
     }
 
     public function create()
     {
         $this->authorize('create departments');
-        return view('departments.create');
+        $companies = \App\Models\Company::where('is_active', true)->get();
+        return view('departments.create', compact('companies'));
     }
 
     public function store(Request $request)
@@ -25,6 +33,7 @@ class DepartmentController extends Controller
         $this->authorize('create departments');
         
         $validated = $request->validate([
+            'company_id' => 'required|exists:companies,id',
             'code' => 'required|string|max:10|unique:departments,code',
             'name' => 'required|string|max:255',
             'manager' => 'nullable|string|max:255',
@@ -41,7 +50,8 @@ class DepartmentController extends Controller
     public function edit(Department $department)
     {
         $this->authorize('edit departments');
-        return view('departments.edit', compact('department'));
+        $companies = \App\Models\Company::where('is_active', true)->get();
+        return view('departments.edit', compact('department', 'companies'));
     }
 
     public function update(Request $request, Department $department)
@@ -49,6 +59,7 @@ class DepartmentController extends Controller
         $this->authorize('edit departments');
 
         $validated = $request->validate([
+            'company_id' => 'required|exists:companies,id',
             'code' => 'required|string|max:10|unique:departments,code,' . $department->id,
             'name' => 'required|string|max:255',
             'manager' => 'nullable|string|max:255',

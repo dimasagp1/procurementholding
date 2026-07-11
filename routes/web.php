@@ -46,7 +46,7 @@ Route::middleware('auth')->group(function () {
     Route::get('purchase-requests/drafts', [PurchaseRequestController::class, 'drafts'])->name('purchase-requests.drafts');
     Route::post('purchase-requests/{purchaseRequest}/submit-draft', [PurchaseRequestController::class, 'submitDraft'])->name('purchase-requests.submit-draft');
     Route::get('purchase-requests/approvals', [PurchaseRequestController::class, 'approvalQueue'])
-        ->middleware('role:operational_manager|manager_fat|general_manager|superadmin')
+        ->middleware('role:operational_manager|manager_fat|general_manager|superadmin|procurement|procurement_holding')
         ->name('purchase-requests.approvals');
     Route::post('purchase-requests/bulk-sync-expenses', [PurchaseRequestController::class, 'bulkSyncExpensesToFinance'])->name('purchase-requests.bulk-sync-expenses');
     Route::resource('purchase-requests', PurchaseRequestController::class);
@@ -93,18 +93,18 @@ Route::middleware('auth')->group(function () {
         ->middleware('role:superadmin|manager_fat|general_manager|operational_manager|procurement')
         ->name('staging-pagu.index');
 
-    // Finance Budget Management
-    Route::get('/settings/finance-budget', [\App\Http\Controllers\SettingController::class, 'financeBudget'])->name('settings.finance-budget');
-    Route::get('/settings/finance-budget-status', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetStatus'])->name('settings.finance-budget-status');
-    Route::post('/settings/finance-budget-generate', [\App\Http\Controllers\SettingController::class, 'generateFinanceBudget'])->name('settings.finance-budget-generate');
-    Route::get('/settings/finance-budget-data', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetData'])->name('settings.finance-budget-data');
-    Route::get('/settings/finance-budget-detail', [\App\Http\Controllers\SettingController::class, 'getFinanceBudgetDetail'])->name('settings.finance-budget-detail');
-    Route::post('/settings/finance-budget-sync-departments', [\App\Http\Controllers\SettingController::class, 'syncDepartments'])->name('settings.finance-budget-sync-departments');
+    // Company specific budget and vendor views
+    Route::get('/companies/{company}/budget', [\App\Http\Controllers\SettingController::class, 'companyFinanceBudget'])->name('companies.budget');
+    Route::get('/companies/{company}/budget-status', [\App\Http\Controllers\SettingController::class, 'getCompanyFinanceBudgetStatus'])->name('companies.budget-status');
+    Route::post('/companies/{company}/budget-generate', [\App\Http\Controllers\SettingController::class, 'generateCompanyFinanceBudget'])->name('companies.budget-generate');
+    Route::get('/companies/{company}/budget-data', [\App\Http\Controllers\SettingController::class, 'getCompanyFinanceBudgetData'])->name('companies.budget-data');
+    Route::get('/companies/{company}/budget-detail', [\App\Http\Controllers\SettingController::class, 'getCompanyFinanceBudgetDetail'])->name('companies.budget-detail');
+    Route::post('/companies/{company}/budget-sync-departments', [\App\Http\Controllers\SettingController::class, 'syncCompanyDepartments'])->name('companies.budget-sync-departments');
 
     // Odoo Vendors
-    Route::middleware('role:superadmin|procurement')->group(function () {
-        Route::get('/settings/odoo-vendors', [\App\Http\Controllers\SettingController::class, 'odooVendors'])->name('settings.odoo-vendors');
-        Route::post('/settings/odoo-vendors', [\App\Http\Controllers\SettingController::class, 'storeOdooVendor'])->name('settings.odoo-vendors.store');
+    Route::middleware('role:superadmin|procurement|procurement_holding')->group(function () {
+        Route::get('/companies/{company}/vendors', [\App\Http\Controllers\SettingController::class, 'companyOdooVendors'])->name('companies.vendors');
+        Route::post('/companies/{company}/vendors', [\App\Http\Controllers\SettingController::class, 'storeCompanyOdooVendor'])->name('companies.vendors.store');
     });
 
     // Superadmin Settings
@@ -120,8 +120,12 @@ Route::middleware('auth')->group(function () {
         Route::post('master-items/import', [\App\Http\Controllers\MasterItemController::class, 'import'])->name('master-items.import');
         Route::get('master-items/template', [\App\Http\Controllers\MasterItemController::class, 'downloadTemplate'])->name('master-items.template');
         Route::resource('master-items', \App\Http\Controllers\MasterItemController::class);
+        Route::post('/companies/test-odoo', [\App\Http\Controllers\CompanyController::class, 'testOdooConnection'])->name('companies.test-odoo');
+        Route::post('/companies/test-finance', [\App\Http\Controllers\CompanyController::class, 'testFinanceConnection'])->name('companies.test-finance');
+        Route::resource('companies', \App\Http\Controllers\CompanyController::class);
     });
 
+    Route::post('switch-company', [\App\Http\Controllers\CompanyController::class, 'switchCompany'])->name('switch-company');
 });
 
 require __DIR__.'/auth.php';

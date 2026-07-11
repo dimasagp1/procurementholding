@@ -17,6 +17,7 @@ class User extends Authenticatable
         'password',
         'employee_id',
         'department_id',
+        'company_id',
         'phone',
         'position',
         'signature_path'
@@ -30,6 +31,11 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
     ];
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 
     public function department()
     {

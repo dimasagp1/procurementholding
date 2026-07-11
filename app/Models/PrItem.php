@@ -73,10 +73,11 @@ class PrItem extends Model
             'pending' => ['operational_manager', 'manager_fat'],
             'approved_om' => ['general_manager'],
             'approved_gm' => ['procurement'],
-            'approved_proc' => ['procurement'],
+            'approved_proc' => ['procurement_holding'],
             'rejected_om' => ['user'],
             'rejected_gm' => ['user'],
-            'rejected_proc' => ['user']
+            'rejected_proc' => ['user'],
+            'rejected_holding' => ['user']
         ];
 
         return in_array($role, $approvalFlow[$this->status] ?? []);

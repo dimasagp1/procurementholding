@@ -169,12 +169,6 @@
                 </li>
                 @endcan
 
-                <li class="nav-item">
-                    <a href="{{ route('settings.finance-budget') }}" class="nav-link {{ request()->routeIs('settings.finance-budget*') ? 'active' : '' }}">
-                        <i class="nav-icon fas fa-coins text-success"></i>
-                        <p>Finance Budget</p>
-                    </a>
-                </li>
 
                 <li class="nav-item">
                     <a href="{{ route('staging-pagu.index') }}" class="nav-link {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
@@ -232,6 +226,12 @@
                             <a href="{{ route('master-items.index') }}" class="nav-link {{ request()->routeIs('master-items.index') ? 'active' : '' }}">
                                 <i class="far fa-circle nav-icon"></i>
                                 <p>Master Item</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{{ route('companies.index') }}" class="nav-link {{ request()->routeIs('companies.index') ? 'active' : '' }}">
+                                <i class="far fa-circle nav-icon"></i>
+                                <p>Company Management</p>
                             </a>
                         </li>
                     </ul>

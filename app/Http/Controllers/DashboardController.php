@@ -15,14 +15,18 @@ class DashboardController extends Controller
     public function index()
     {
         $user = Auth::user();
+        $activeCompanyId = session('active_company_id');
         
         if ($user->hasRole('superadmin')) {
-            $stats = $this->getSuperadminStats();
-            $recentPRs = PurchaseRequest::with(['user', 'department', 'items'])
-                ->orderBy('created_at', 'desc')
+            $stats = $this->getSuperadminStats($activeCompanyId);
+            $query = PurchaseRequest::with(['user', 'department', 'items']);
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            }
+            $recentPRs = $query->orderBy('created_at', 'desc')
                 ->limit(10)
                 ->get();
-            $chartData = $this->getSuperadminChartData();
+            $chartData = $this->getSuperadminChartData($activeCompanyId);
         } elseif ($user->hasRole('user')) {
             $stats = $this->getUserStats($user);
             $recentPRs = PurchaseRequest::where('user_id', $user->id)
@@ -32,13 +36,20 @@ class DashboardController extends Controller
                 ->get();
             $chartData = $this->getUserChartData($user);
         } else {
-            $stats = $this->getManagerStats($user);
+            $stats = $this->getManagerStats($user, $activeCompanyId);
             $query = PurchaseRequest::with(['user', 'department', 'items']);
+            
+            if ($activeCompanyId) {
+                $query->where('company_id', $activeCompanyId);
+            } elseif (!$user->hasRole('procurement_holding')) {
+                $query->where('company_id', $user->company_id);
+            }
+
             $query->where(function ($q) use ($user) {
                 $q->orWhere('user_id', $user->id);
                 
                 if ($user->hasRole('operational_manager')) {
-                    $q->orWhere(function ($subQ) use ($user) {
+                    $q->orWhere(function ($subQ) {
                         $subQ->where('status', 'pending')
                              ->where('pr_type', 'operational');
                     });
@@ -53,24 +64,34 @@ class DashboardController extends Controller
                     $q->orWhere('status', 'approved_om');
                 }
                 if ($user->hasRole('procurement')) {
-                    $q->orWhereRaw('1=1'); // Procurement sees all recent PRs
+                    $q->orWhereRaw('1=1'); // Procurement sees all recent PRs of their company
                 }
                 if ($user->hasRole('procurement_holding')) {
                     $q->orWhere(function ($subQ) {
                         $subQ->where('pr_type', 'operational')
                              ->whereHas('items', function ($itemQ) {
-                                 $itemQ->whereIn('status', ['ordered', 'delivered', 'completed']);
+                                  $itemQ->whereIn('status', ['ordered', 'delivered', 'completed']);
                              });
                     });
                 }
             });
 
             $recentPRs = $query->orderBy('created_at', 'desc')->limit(10)->get();
-            $chartData = $this->getManagerChartData($user);
+            $chartData = $this->getManagerChartData($user, $activeCompanyId);
         }
         $ongoingItemsQuery = \App\Models\PrItem::with(['purchaseRequest.user', 'purchaseRequest.department', 'deliveryPlans', 'deliveries'])
         ->whereIn('status', ['approved_proc', 'ordered', 'delivered', 'completed'])
         ->orderBy('created_at', 'desc');
+
+        if ($activeCompanyId) {
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) use ($activeCompanyId) {
+                $q->where('company_id', $activeCompanyId);
+            });
+        } elseif (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) use ($user) {
+                $q->where('company_id', $user->company_id);
+            });
+        }
 
         // Filter based on role
         if ($user->hasRole('user')) {
@@ -101,24 +122,50 @@ class DashboardController extends Controller
 
         $ongoingItems = $ongoingItemsQuery->limit(50)->get();
 
-        return view('dashboard', compact('stats', 'recentPRs', 'chartData', 'ongoingItems'));
+        // Page title: company name for entity users, generic for holding/superadmin
+        $isHolding = $user->hasAnyRole(['superadmin', 'procurement_holding']);
+        if ($isHolding) {
+            $pageTitle = 'Overview — Holding';
+            $pageSubtitle = null;
+        } else {
+            $userCompany = $user->company;
+            $pageTitle = $userCompany ? $userCompany->name : 'Overview';
+            $pageSubtitle = $userCompany ? $userCompany->code : null;
+        }
+
+        return view('dashboard', compact('stats', 'recentPRs', 'chartData', 'ongoingItems', 'pageTitle', 'pageSubtitle'));
     }
 
-    private function getSuperadminChartData()
+    private function getSuperadminChartData($companyId = null)
     {
-        $prs = PurchaseRequest::with('items')->get();
+        $query = PurchaseRequest::with('items');
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+        }
+        $prs = $query->get();
         return [
             'status_distribution' => $this->formatStatusDistribution($prs),
-            'monthly_trends' => $this->getMonthlyTrends(),
+            'monthly_trends' => $this->getMonthlyTrends(null, $companyId),
         ];
     }
 
     public function exportOngoingItems()
     {
         $user = Auth::user();
+        $activeCompanyId = session('active_company_id');
         $ongoingItemsQuery = \App\Models\PrItem::with(['purchaseRequest.user', 'purchaseRequest.department', 'deliveryPlans', 'deliveries'])
         ->whereIn('status', ['approved_proc', 'ordered', 'delivered', 'completed'])
         ->orderBy('created_at', 'desc');
+
+        if ($activeCompanyId) {
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) use ($activeCompanyId) {
+                $q->where('company_id', $activeCompanyId);
+            });
+        } elseif (!$user->hasAnyRole(['superadmin', 'procurement_holding'])) {
+            $ongoingItemsQuery->whereHas('purchaseRequest', function($q) use ($user) {
+                $q->where('company_id', $user->company_id);
+            });
+        }
 
         // Filter based on role (sama dengan di index)
         if ($user->hasRole('user')) {
@@ -155,12 +202,20 @@ class DashboardController extends Controller
         ];
     }
 
-    private function getManagerChartData($user)
+    private function getManagerChartData($user, $companyId = null)
     {
-        $prs = PurchaseRequest::with('items')->get();
+        $role = $user->getRoleNames()->first();
+        $query = PurchaseRequest::with('items');
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+        } elseif ($role !== 'procurement_holding') {
+            $query->where('company_id', $user->company_id);
+            $companyId = $user->company_id;
+        }
+        $prs = $query->get();
         return [
             'status_distribution' => $this->formatStatusDistribution($prs),
-            'monthly_trends' => $this->getMonthlyTrends(),
+            'monthly_trends' => $this->getMonthlyTrends(null, $companyId),
         ];
     }
 
@@ -189,7 +244,7 @@ class DashboardController extends Controller
         ];
     }
 
-    private function getMonthlyTrends($userId = null)
+    private function getMonthlyTrends($userId = null, $companyId = null)
     {
         $months = [];
         $data = [];
@@ -203,6 +258,9 @@ class DashboardController extends Controller
             if ($userId) {
                 $query->where('user_id', $userId);
             }
+            if ($companyId) {
+                $query->where('company_id', $companyId);
+            }
             
             $data[] = $query->count();
         }
@@ -213,13 +271,23 @@ class DashboardController extends Controller
         ];
     }
 
-    private function getSuperadminStats()
+    private function getSuperadminStats($companyId = null)
     {
-        $prs = PurchaseRequest::with('items')->get();
+        $query = PurchaseRequest::with('items');
+        $userQuery = User::query();
+        $deptQuery = Department::query();
+
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+            $userQuery->where('company_id', $companyId);
+            $deptQuery->where('company_id', $companyId);
+        }
+
+        $prs = $query->get();
         return [
             'total_pr' => $prs->count(),
-            'total_users' => User::count(),
-            'total_departments' => Department::count(),
+            'total_users' => $userQuery->count(),
+            'total_departments' => $deptQuery->count(),
             'pending_pr' => $prs->filter(fn($p) => in_array($p->approval_status, ['Pending', 'Revision Required', 'Partial / Revision']))->count(),
             'approved_pr' => $prs->filter(fn($p) => !in_array($p->approval_status, ['Draft', 'Pending', 'Revision Required', 'Partial / Revision', 'Completed']))->count(),
             'rejected_pr' => $prs->filter(fn($p) => in_array($p->approval_status, ['Revision Required', 'Partial / Revision']))->count(),
@@ -238,10 +306,17 @@ class DashboardController extends Controller
         ];
     }
 
-    private function getManagerStats($user)
+    private function getManagerStats($user, $companyId = null)
     {
         $role = $user->getRoleNames()->first();
-        $prs = PurchaseRequest::with('items')->get();
+        
+        $query = PurchaseRequest::with('items');
+        if ($companyId) {
+            $query->where('company_id', $companyId);
+        } elseif ($role !== 'procurement_holding') {
+            $query->where('company_id', $user->company_id);
+        }
+        $prs = $query->get();
 
         if ($role === 'procurement_holding') {
             return [

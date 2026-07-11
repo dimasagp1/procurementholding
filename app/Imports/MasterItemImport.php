@@ -8,6 +8,13 @@ use Maatwebsite\Excel\Concerns\WithHeadingRow;
 
 class MasterItemImport implements ToModel, WithHeadingRow
 {
+    protected $companyId;
+
+    public function __construct($companyId)
+    {
+        $this->companyId = $companyId;
+    }
+
     /**
     * @param array $row
     *
@@ -19,14 +26,17 @@ class MasterItemImport implements ToModel, WithHeadingRow
             return null;
         }
 
-        // Avoid duplicates
-        $exists = MasterItem::where('name', $row['name'])->exists();
+        // Avoid duplicates for this company
+        $exists = MasterItem::where('name', $row['name'])
+            ->where('company_id', $this->companyId)
+            ->exists();
         if ($exists) {
             return null;
         }
 
         return new MasterItem([
             'name' => $row['name'],
+            'company_id' => $this->companyId,
         ]);
     }
 }

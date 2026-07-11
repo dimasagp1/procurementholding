@@ -2,18 +2,23 @@
     <x-slot name="header">
         <div class="d-flex justify-content-between align-items-center flex-wrap" style="gap:0.5rem;">
             <h2 class="font-semibold text-xl leading-tight mb-0">
-                {{ __('Master Item Management') }}
+                {{ __('Master Item Management') }} - {{ $company ? $company->name : 'All Companies' }}
             </h2>
-            <a href="{{ route('master-items.create') }}" class="btn btn-sm btn-primary">
-                <i class="fas fa-plus"></i> Add Item
-            </a>
+            @if($company)
+                <a href="{{ route('master-items.create') }}" class="btn btn-sm btn-primary">
+                    <i class="fas fa-plus"></i> Add Item
+                </a>
+            @else
+                <span class="badge badge-warning text-sm p-2"><i class="fas fa-exclamation-triangle mr-1"></i> Switch company to add Item</span>
+            @endif
         </div>
     </x-slot>
 
     <div>
+        @if($company)
         <div class="card shadow-sm rounded-lg mb-4">
             <div class="card-body p-4">
-                <h5 class="mb-3">Bulk Import Data</h5>
+                <h5 class="mb-3">Bulk Import Data ({{ $company->name }})</h5>
                 <form action="{{ route('master-items.import') }}" method="POST" enctype="multipart/form-data" class="d-flex align-items-center flex-wrap" style="gap: 1rem;">
                     @csrf
                     <div>
@@ -31,6 +36,11 @@
                 </form>
             </div>
         </div>
+        @else
+        <div class="alert alert-info shadow-sm mb-4">
+            <i class="fas fa-info-circle mr-2"></i> Silakan pilih perusahaan di switcher kanan atas untuk melakukan import data master item.
+        </div>
+        @endif
 
         <div class="card shadow-sm rounded-lg">
             <div class="card-body p-3">
@@ -49,6 +59,9 @@
                             <tr>
                                 <th style="width: 10px">#</th>
                                 <th>Name</th>
+                                @if(!$company)
+                                    <th>Company</th>
+                                @endif
                                 <th style="width: 150px">Actions</th>
                             </tr>
                         </thead>
@@ -57,6 +70,9 @@
                             <tr>
                                 <td data-label="#">{{ ($items->currentPage() - 1) * $items->perPage() + $loop->iteration }}</td>
                                 <td data-label="Name"><strong>{{ $item->name }}</strong></td>
+                                @if(!$company)
+                                    <td data-label="Company"><span class="badge badge-secondary">{{ $item->company ? $item->company->name : 'Global/None' }}</span></td>
+                                @endif
                                 <td class="td-actions">
                                     <a href="{{ route('master-items.edit', $item) }}" class="btn btn-sm btn-warning">Edit</a>
                                     <form action="{{ route('master-items.destroy', $item) }}" method="POST" class="d-inline form-confirm" data-message="Are you sure you want to delete this Item?">
@@ -68,7 +84,7 @@
                             </tr>
                             @empty
                             <tr>
-                                <td colspan="3" class="text-center">No Master Item found.</td>
+                                <td colspan="{{ !$company ? 4 : 3 }}" class="text-center">No Master Item found.</td>
                             </tr>
                             @endforelse
                         </tbody>

@@ -16,6 +16,7 @@ class PurchaseRequest extends Model
         'pr_number',
         'user_id',
         'department_id',
+        'company_id',
         'request_date',
         'purpose',
         'status',
@@ -34,7 +35,10 @@ class PurchaseRequest extends Model
         parent::boot();
     }
 
-
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 
     public function user()
     {
@@ -71,7 +75,7 @@ class PurchaseRequest extends Model
         if ($this->hasRejectedItems()) {
             // Check if any item is already approved or further
             $hasProgress = $items->contains(function($item) {
-                return !in_array($item->status, ['pending', 'pending_estimate', 'rejected_om', 'rejected_gm', 'rejected_proc']);
+                return !in_array($item->status, ['pending', 'pending_estimate', 'rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding']);
             });
             return $hasProgress ? 'Partial / Revision' : 'Revision Required';
         }
@@ -82,7 +86,7 @@ class PurchaseRequest extends Model
         if ($this->allAtLeast($statuses, ['completed'])) return 'Completed';
         if ($this->allAtLeast($statuses, ['completed', 'delivered'])) return 'Delivered';
         if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered'])) return 'Ordered';
-        if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered', 'approved_proc'])) return 'Approved (Proc)';
+        if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered', 'approved_proc'])) return 'Menunggu Procurement Holding';
         if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered', 'approved_proc', 'approved_gm'])) return 'Approved (GM)';
         $level1Label = $this->pr_type === 'non_operational' ? 'Approved (FAT)' : 'Approved (OM)';
         if ($this->allAtLeast($statuses, ['completed', 'delivered', 'ordered', 'approved_proc', 'approved_gm', 'approved_om'])) return $level1Label;
@@ -112,7 +116,7 @@ class PurchaseRequest extends Model
     public function hasRejectedItems()
     {
         return $this->items()
-            ->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])
+            ->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding'])
             ->exists();
     }
 
@@ -168,11 +172,12 @@ class PurchaseRequest extends Model
         $isFat = $user->hasRole('manager_fat');
         $isGm = $user->hasRole('general_manager');
         $isProc = $user->hasRole('procurement');
+        $isProcHolding = $user->hasRole('procurement_holding');
         $isSuperadmin = $user->hasRole('superadmin');
         
         $role = $user->getRoleNames()->first();
 
-        return $this->items->filter(function ($item) use ($user, $isOm, $isFat, $isGm, $isProc, $isSuperadmin, $role, $action) {
+        return $this->items->filter(function ($item) use ($user, $isOm, $isFat, $isGm, $isProc, $isProcHolding, $isSuperadmin, $role, $action) {
             if ($this->status === 'draft') {
                 return false;
             }
@@ -189,6 +194,9 @@ class PurchaseRequest extends Model
                 if (($isProc || $isSuperadmin) && $item->status === 'approved_gm') {
                     return true;
                 }
+                if (($isProcHolding || $isSuperadmin) && $item->status === 'approved_proc') {
+                    return true;
+                }
             } elseif ($action === 'note') {
                 if ($this->user_id == $user->id) {
                     return true;
@@ -196,7 +204,7 @@ class PurchaseRequest extends Model
                 if (($isProc || $isSuperadmin) && $item->status === 'pending_estimate') {
                     return true;
                 }
-                if ($isSuperadmin && in_array($item->status, ['pending', 'approved_om', 'approved_gm'])) {
+                if ($isSuperadmin && in_array($item->status, ['pending', 'approved_om', 'approved_gm', 'approved_proc'])) {
                     return true;
                 }
                 if ($isOm && $item->status === 'pending' && $this->pr_type === 'operational') {
@@ -209,6 +217,9 @@ class PurchaseRequest extends Model
                     return true;
                 }
                 if ($isProc && $item->status === 'approved_gm') {
+                    return true;
+                }
+                if ($isProcHolding && $item->status === 'approved_proc') {
                     return true;
                 }
             }
