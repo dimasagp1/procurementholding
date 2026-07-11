@@ -661,9 +661,14 @@
                                                         </option>
                                                     </select>
                                                 </form>
+                                                @if($item->status === 'approved_proc')
+                                                    <button type="button" class="btn btn-danger btn-xs mt-1 w-100" data-toggle="modal" data-target="#rejectModal-{{ $item->id }}">
+                                                        <i class="fas fa-times-circle"></i> Reject Item
+                                                    </button>
+                                                @endif
                                             @endif
                                             
-                                            @if(in_array($item->status, ['ordered', 'delivered']))
+                                            @if(in_array($item->status, ['approved_proc', 'ordered', 'delivered']))
                                                 @if(!$item->po_number && ($isProcHolding || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> 
@@ -832,9 +837,6 @@
     <!-- Modals moved outside table to prevent HTML form stripping -->
     @foreach($purchaseRequest->items as $item)
         @php
-            if (Auth::user()->hasRole('procurement_holding') && !$item->is_incoming) {
-                continue;
-            }
             $isProc = Auth::user()->hasRole('procurement');
             $isProcHolding = Auth::user()->hasRole('procurement_holding');
             $isSuperadmin = Auth::user()->hasRole('superadmin');
