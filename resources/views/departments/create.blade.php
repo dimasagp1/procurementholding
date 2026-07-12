@@ -13,50 +13,67 @@
                         @csrf
 
                         <div class="row">
-                             <div class="col-md-6 mb-3">
+                            {{-- Company --}}
+                            <div class="col-md-6 mb-3">
                                 <label for="company_id" class="form-label">Company</label>
-                                <select class="form-control @error('company_id') is-invalid @enderror" id="company_id" name="company_id" required>
-                                    <option value="">Select Company</option>
-                                    @foreach($companies as $company)
-                                        <option value="{{ $company->id }}" {{ old('company_id') == $company->id ? 'selected' : '' }}>
-                                            {{ $company->name }} ({{ $company->code }})
-                                        </option>
-                                    @endforeach
-                                </select>
-                                @error('company_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                @if($isLocked)
+                                    <input type="text" class="form-control"
+                                        value="{{ $companies->first()->name ?? '-' }} ({{ $companies->first()->code ?? '' }})"
+                                        readonly disabled>
+                                    <input type="hidden" name="company_id" value="{{ $lockedCompanyId }}">
+                                    <small class="text-muted"><i class="fas fa-lock mr-1"></i> Company dikunci sesuai akun Anda.</small>
+                                @else
+                                    <select class="form-control @error('company_id') is-invalid @enderror" id="company_id" name="company_id" required>
+                                        <option value="">Select Company</option>
+                                        @foreach($companies as $company)
+                                            <option value="{{ $company->id }}" {{ old('company_id') == $company->id ? 'selected' : '' }}>
+                                                {{ $company->name }} ({{ $company->code }})
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    @error('company_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                @endif
                             </div>
 
+                            {{-- Code --}}
                             <div class="col-md-6 mb-3">
                                 <label for="code" class="form-label">Department Code</label>
-                                <input type="text" class="form-control @error('code') is-invalid @enderror" id="code" name="code" value="{{ old('code') }}" required maxlength="10">
+                                <input type="text" class="form-control @error('code') is-invalid @enderror"
+                                    id="code" name="code" value="{{ old('code') }}" required maxlength="10">
                                 @error('code') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
 
+                            {{-- Name --}}
                             <div class="col-md-6 mb-3">
                                 <label for="name" class="form-label">Department Name</label>
-                                <input type="text" class="form-control @error('name') is-invalid @enderror" id="name" name="name" value="{{ old('name') }}" required>
+                                <input type="text" class="form-control @error('name') is-invalid @enderror"
+                                    id="name" name="name" value="{{ old('name') }}" required>
                                 @error('name') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
 
+                            {{-- Manager --}}
                             <div class="col-md-6 mb-3">
-                                <label for="manager" class="form-label">Manager Name (Optional)</label>
-                                <input type="text" class="form-control @error('manager') is-invalid @enderror" id="manager" name="manager" value="{{ old('manager') }}">
+                                <label for="manager" class="form-label">Manager Name <small class="text-muted">(Optional)</small></label>
+                                <input type="text" class="form-control @error('manager') is-invalid @enderror"
+                                    id="manager" name="manager" value="{{ old('manager') }}">
                                 @error('manager') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
 
+                            {{-- Description --}}
                             <div class="col-md-12 mb-3">
-                                <label for="description" class="form-label">Description (Optional)</label>
-                                <textarea class="form-control @error('description') is-invalid @enderror" id="description" name="description" rows="3">{{ old('description') }}</textarea>
+                                <label for="description" class="form-label">Description <small class="text-muted">(Optional)</small></label>
+                                <textarea class="form-control @error('description') is-invalid @enderror"
+                                    id="description" name="description" rows="3">{{ old('description') }}</textarea>
                                 @error('description') <div class="invalid-feedback">{{ $message }}</div> @enderror
                             </div>
 
+                            {{-- Active --}}
                             <div class="col-md-6 mb-3">
                                 <div class="form-check">
                                     <input type="hidden" name="is_active" value="0">
-                                    <input class="form-check-input" type="checkbox" value="1" id="is_active" name="is_active" {{ old('is_active', 1) ? 'checked' : '' }}>
-                                    <label class="form-check-label" for="is_active">
-                                        Active
-                                    </label>
+                                    <input class="form-check-input" type="checkbox" value="1" id="is_active" name="is_active"
+                                        {{ old('is_active', 1) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_active">Active</label>
                                 </div>
                             </div>
                         </div>

@@ -17,6 +17,7 @@
         {{-- ============================================================
              SECTION: HOLDING / SUPERADMIN
              ============================================================ --}}
+        @if(!$holdingUsers->isEmpty())
         <div class="card shadow-sm rounded-lg mb-4">
             <div class="card-header d-flex align-items-center" style="background: linear-gradient(90deg, rgba(99,102,241,0.15), transparent); border-bottom: 1px solid rgba(99,102,241,0.25);">
                 <i class="fas fa-crown text-warning mr-2"></i>
@@ -84,6 +85,7 @@
                 @endif
             </div>
         </div>
+        @endif
 
         {{-- ============================================================
              SECTION: PER COMPANY

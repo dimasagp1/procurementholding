@@ -108,7 +108,7 @@
                 </li>
                 @endcan
 
-                @can('manage users')
+                @canany(['view users', 'manage users'])
                 <li class="nav-item {{ request()->routeIs('users.*') ? 'menu-open' : '' }}">
                     <a href="#" class="nav-link">
                         <i class="nav-icon fas fa-users"></i>
@@ -124,17 +124,19 @@
                                 <p>All Users</p>
                             </a>
                         </li>
+                        @can('create users')
                         <li class="nav-item">
                             <a href="{{ route('users.create') }}" class="nav-link {{ request()->routeIs('users.create') ? 'active' : '' }}">
                                 <i class="far fa-circle nav-icon"></i>
                                 <p>Add User</p>
                             </a>
                         </li>
+                        @endcan
                     </ul>
                 </li>
-                @endcan
+                @endcanany
 
-                @can('manage departments')
+                @canany(['view departments', 'manage departments'])
                 <li class="nav-item {{ request()->routeIs('departments.*') ? 'menu-open' : '' }}">
                     <a href="#" class="nav-link">
                         <i class="nav-icon fas fa-building"></i>
@@ -150,15 +152,17 @@
                                 <p>All Departments</p>
                             </a>
                         </li>
+                        @can('create departments')
                         <li class="nav-item">
                             <a href="{{ route('departments.create') }}" class="nav-link {{ request()->routeIs('departments.create') ? 'active' : '' }}">
                                 <i class="far fa-circle nav-icon"></i>
                                 <p>Add Department</p>
                             </a>
                         </li>
+                        @endcan
                     </ul>
                 </li>
-                @endcan
+                @endcanany
 
                 @can('view reports')
                 <li class="nav-item">

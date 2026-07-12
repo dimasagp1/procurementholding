@@ -34,21 +34,31 @@
 
                              <div class="col-md-6 mb-3">
                                 <label for="company_id" class="form-label">Company</label>
-                                <select class="form-control @error('company_id') is-invalid @enderror" id="company_id" name="company_id" required>
-                                    <option value="">Select Company</option>
-                                    @foreach($companies as $company)
-                                        <option value="{{ $company->id }}" {{ old('company_id', $user->company_id) == $company->id ? 'selected' : '' }}>
-                                            {{ $company->name }} ({{ $company->code }})
-                                        </option>
-                                    @endforeach
-                                </select>
-                                @error('company_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                @if($isCompanyLocked)
+                                    <input type="text" class="form-control" value="{{ $companies->first()->name ?? '-' }} ({{ $companies->first()->code ?? '' }})" readonly disabled>
+                                    <input type="hidden" name="company_id" value="{{ $lockedCompanyId }}">
+                                    <small class="text-muted"><i class="fas fa-lock mr-1"></i> Company dikunci sesuai akun Anda.</small>
+                                @else
+                                    <select class="form-control @error('company_id') is-invalid @enderror" id="company_id" name="company_id">
+                                        <option value="">-- Pilih Company (opsional untuk role holding) --</option>
+                                        @foreach($companies as $company)
+                                            <option value="{{ $company->id }}" {{ old('company_id', $user->company_id) == $company->id ? 'selected' : '' }}>
+                                                {{ $company->name }} ({{ $company->code }})
+                                            </option>
+                                        @endforeach
+                                    </select>
+                                    @error('company_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    <small class="text-muted">Kosongkan jika user adalah holding-level (Superadmin / Procurement Holding).</small>
+                                @endif
                             </div>
 
-                            <div class="col-md-6 mb-3">
-                                <label for="department_id" class="form-label">Department</label>
-                                <select class="form-control @error('department_id') is-invalid @enderror" id="department_id" name="department_id" required>
-                                    <option value="">Select Department</option>
+                            <div class="col-md-6 mb-3" id="department_wrapper">
+                                <label for="department_id" class="form-label">
+                                    Department
+                                    <span id="dept_required_badge" class="badge badge-secondary ml-1" style="font-size:0.7rem;">Opsional</span>
+                                </label>
+                                <select class="form-control @error('department_id') is-invalid @enderror" id="department_id" name="department_id">
+                                    <option value="">-- Pilih Department --</option>
                                     @foreach($departments as $dept)
                                         <option value="{{ $dept->id }}" {{ old('department_id', $user->department_id) == $dept->id ? 'selected' : '' }}>
                                             {{ $dept->name }} ({{ $dept->code }})
@@ -56,6 +66,7 @@
                                     @endforeach
                                 </select>
                                 @error('department_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                <small class="text-muted" id="dept_hint">Pilih department sesuai company.</small>
                             </div>
 
                             <div class="col-md-6 mb-3">
@@ -63,7 +74,9 @@
                                 <select class="form-control @error('role') is-invalid @enderror" id="role" name="role" required>
                                     <option value="">Select Role</option>
                                     @foreach($roles as $role)
-                                        <option value="{{ $role->name }}" {{ old('role', $user->getRoleNames()->first()) == $role->name ? 'selected' : '' }}>
+                                        <option value="{{ $role->name }}"
+                                            {{ old('role', $user->getRoleNames()->first()) == $role->name ? 'selected' : '' }}
+                                            data-is-holding="{{ in_array($role->name, ['superadmin', 'procurement_holding']) ? '1' : '0' }}">
                                             {{ ucfirst(str_replace('_', ' ', $role->name)) }}
                                         </option>
                                     @endforeach
@@ -142,4 +155,70 @@
             </div>
         </div>
     </div>
+
+    @push('scripts')
+    <script>
+    (function () {
+        const isCompanyLocked = @json($isCompanyLocked);
+        const companySelect   = document.getElementById('company_id');
+        const deptSelect      = document.getElementById('department_id');
+        const roleSelect      = document.getElementById('role');
+        const deptHint        = document.getElementById('dept_hint');
+        const deptBadge       = document.getElementById('dept_required_badge');
+
+        // Fetch departments saat company berubah (hanya untuk holding user)
+        if (!isCompanyLocked && companySelect) {
+            companySelect.addEventListener('change', function () {
+                loadDepartments(this.value, null);
+            });
+        }
+
+        // Ubah hint berdasarkan role
+        if (roleSelect) {
+            roleSelect.addEventListener('change', function () {
+                const isHolding = this.options[this.selectedIndex]?.dataset.isHolding === '1';
+                if (isHolding) {
+                    deptBadge.textContent = 'Opsional';
+                    deptBadge.className = 'badge badge-secondary ml-1';
+                    deptHint.textContent = 'Role holding-level tidak wajib memiliki department.';
+                } else {
+                    deptBadge.textContent = 'Opsional';
+                    deptBadge.className = 'badge badge-secondary ml-1';
+                    deptHint.textContent = 'Pilih department sesuai company.';
+                }
+            });
+        }
+
+        function loadDepartments(companyId, selectedId) {
+            deptSelect.innerHTML = '<option value="">-- Memuat... --</option>';
+
+            if (!companyId) {
+                deptSelect.innerHTML = '<option value="">-- Pilih Department --</option>';
+                return;
+            }
+
+            fetch(`/api/companies/${companyId}/departments`, {
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                }
+            })
+            .then(res => res.json())
+            .then(data => {
+                deptSelect.innerHTML = '<option value="">-- Pilih Department --</option>';
+                data.forEach(dept => {
+                    const opt = document.createElement('option');
+                    opt.value = dept.id;
+                    opt.textContent = `${dept.name} (${dept.code})`;
+                    if (selectedId && dept.id == selectedId) opt.selected = true;
+                    deptSelect.appendChild(opt);
+                });
+            })
+            .catch(() => {
+                deptSelect.innerHTML = '<option value="">-- Gagal memuat department --</option>';
+            });
+        }
+    })();
+    </script>
+    @endpush
 </x-app-layout>

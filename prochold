@@ -1,0 +1,99 @@
+# Panduan Sederhana: Sistem Multi-Perusahaan (Multi-Company) & Hak Akses User
+
+Dokumen ini menjelaskan bagaimana cara kerja sistem kelola perusahaan, departemen, dan pengguna (user) pada platform **Procurement Holding** dengan bahasa yang mudah dipahami sehari-hari.
+
+---
+
+## 🏢 1. Analogi Sistem: Gedung Holding dan Anak Perusahaan
+
+Bayangkan sistem ini seperti sebuah **Kantor Pusat (Holding)** yang menaungi beberapa **Anak Perusahaan** (misalnya perusahaan konstruksi, properti, dll).
+
+```
+                      [ KANTOR PUSAT / HOLDING ]
+                (Melihat & mengontrol semua perusahaan)
+                                   │
+         ┌─────────────────────────┴─────────────────────────┐
+         ▼                                                   ▼
+  [ Anak Perusahaan A ]                               [ Anak Perusahaan B ]
+  (Hanya bisa melihat &                               (Hanya bisa melihat &
+  mengelola rumah tangganya sendiri)                  mengelola rumah tangganya sendiri)
+```
+
+---
+
+## 👥 2. Mengenal Peran (Role) dan Apa yang Bisa Mereka Lakukan
+
+Dalam sistem ini, ada 3 jenis admin utama dengan tugas dan batas kekuasaan masing-masing:
+
+### 1. Super Admin (Tingkat Holding / Pusat)
+* **Siapa mereka?** Tim IT pusat atau pimpinan tertinggi holding.
+* **Kekuasaannya:** 
+  * Bisa melihat **semua** anak perusahaan.
+  * Bisa membuat anak perusahaan baru.
+  * Menu-menu rapi tersembunyi di dalam tombol **Settings** di pojok kanan atas agar layar tidak penuh.
+
+### 2. Procurement Holding (Tingkat Holding / Pusat)
+* **Siapa mereka?** Tim pembelian/pengadaan di kantor pusat.
+* **Kekuasaannya:**
+  * Membantu menyetujui (approve) pengajuan barang dari anak-anak perusahaan.
+  * Bisa mendaftarkan user baru, kecuali user setingkat Super Admin.
+
+### 3. Company Admin (Tingkat Anak Perusahaan)
+* **Siapa mereka?** Admin kantor/HRD di masing-masing anak perusahaan.
+* **Kekuasaannya:**
+  * **Hanya** bisa mengelola anak perusahaannya sendiri.
+  * Bisa mendaftarkan departemen baru di perusahaannya sendiri.
+  * Bisa mendaftarkan karyawan baru (misal: Staff biasa atau Manager) untuk perusahaannya sendiri.
+  * **Tidak bisa** mengintip data dari anak perusahaan lain.
+
+---
+
+## 🔄 3. Alur Penggunaan Sistem: Dari Awal Sampai Akhir
+
+Berikut adalah panduan langkah demi langkah cara menggunakan sistem ini dari kacamata pengguna:
+
+```
+[LANGKAH 1]
+Super Admin login
+  └─ Buat Perusahaan Baru (misal: PT Eka Properti)
+  └─ Daftarkan departemen awal (Finance, HRD) langsung di form yang sama
+  └─ Buat akun Company Admin pertama untuk perusahaan baru tersebut (misal: Toni Kroos)
+  
+                                  │
+                                  ▼
+[LANGKAH 2]
+Toni Kroos (Company Admin PT Eka Properti) login
+  └─ Buka menu "Departments" -> Tambah departemen tambahan jika kurang
+  └─ Buka menu "Users" -> Daftarkan karyawan lain (misal: Staff biasa atau Manager)
+  └─ Pilihan perusahaan otomatis dikunci ke "PT Eka Properti" (agar tidak salah input ke perusahaan lain)
+
+                                  │
+                                  ▼
+[LANGKAH 3]
+Karyawan yang didaftarkan Toni login
+  └─ Mulai membuat pengajuan pembelian barang (Purchase Request)
+  └─ Pengajuan disetujui oleh Manager internal
+  └─ Terakhir, disetujui oleh tim Procurement Holding di kantor pusat
+```
+
+---
+
+## 🧪 4. Cara Praktis Mencobanya Langsung (Uji Coba)
+
+Kami telah menyiapkan data percobaan agar Anda bisa langsung mencoba alur di atas.
+
+### Uji Coba A: Masuk Sebagai Admin Anak Perusahaan
+1. Buka halaman Login aplikasi.
+2. Masukkan email: **`admin@konstruksi.com`** dan password: **`password`** (Ini adalah akun *Company Admin* untuk **PT Maju Konstruksi**).
+3. Setelah masuk, coba perhatikan:
+   - Di navbar atas, Anda akan melihat menu **Users** dan **Departments** secara mandiri.
+   - Buka **Users** -> **Add New User**: Anda akan melihat nama perusahaan Anda (**PT Maju Konstruksi**) terkunci dan tidak bisa diganti. Pilihan departemen yang muncul juga hanya departemen milik PT Maju Konstruksi.
+   - Buka **Departments** -> **Add New Department**: Pilihan nama perusahaan juga otomatis terkunci.
+
+### Uji Coba B: Masuk Sebagai Super Admin (Holding)
+1. Logout dari akun sebelumnya.
+2. Masuk menggunakan email Super Admin: **`superadmin@prsystem.com`** dan password: **`password`**.
+3. Setelah masuk, coba perhatikan:
+   - Menu **Users** dan **Departments** di navbar atas **tidak ada**.
+   - Arahkan kursor Anda ke menu **Settings** di pojok kanan atas. Di dalam dropdown Settings tersebut, Anda akan menemukan menu **User Management** dan **Departments** beserta menu pengaturan sistem lainnya.
+   - Ini dilakukan agar tampilan menu milik Super Admin tetap bersih, rapi, dan mudah digunakan.

@@ -1124,18 +1124,18 @@
             </a>
             @endcan
 
-            @can('manage users')
+            @canany(['view users', 'manage users'])
             <div class="drawer-section-label">Management</div>
             <a href="{{ route('users.index') }}" class="drawer-nav-link">
                 <i class="fas fa-users"></i> Users
             </a>
-            @endcan
+            @endcanany
 
-            @can('manage departments')
+            @canany(['view departments', 'manage departments'])
             <a href="{{ route('departments.index') }}" class="drawer-nav-link">
                 <i class="fas fa-building"></i> Departments
             </a>
-            @endcan
+            @endcanany
 
             @can('view reports')
             <a href="{{ route('reports.index') }}" class="drawer-nav-link {{ request()->routeIs('reports.*') ? 'active' : '' }}">
@@ -1262,89 +1262,114 @@
                         </li>
                     @endcan
 
-                    {{-- Users: only for users with manage users permission --}}
-                    @can('manage users')
-                        <li class="nav-item dropdown">
-                            <a id="dropdownUsers" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                               class="nav-link dropdown-toggle {{ request()->routeIs('users.*') ? 'active' : '' }}">
-                                <i class="fas fa-users mr-1"></i> Users
-                            </a>
-                            <ul aria-labelledby="dropdownUsers" class="dropdown-menu border-0 shadow">
-                                <li><a href="{{ route('users.index') }}" class="dropdown-item"><i class="fas fa-list mr-2 text-info"></i> All Users</a></li>
-                                @can('create users')
-                                    <li><a href="{{ route('users.create') }}" class="dropdown-item"><i class="fas fa-user-plus mr-2 text-success"></i> Add User</a></li>
-                                @endcan
-                            </ul>
-                        </li>
-                    @endcan
+                    @if(!Auth::user()->hasRole('superadmin'))
+                        @canany(['view users', 'manage users'])
+                            <li class="nav-item dropdown">
+                                <a id="dropdownUsers" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                                   class="nav-link dropdown-toggle {{ request()->routeIs('users.*') ? 'active' : '' }}">
+                                    <i class="fas fa-users mr-1"></i> Users
+                                </a>
+                                <ul aria-labelledby="dropdownUsers" class="dropdown-menu border-0 shadow">
+                                    <li><a href="{{ route('users.index') }}" class="dropdown-item"><i class="fas fa-list mr-2 text-info"></i> All Users</a></li>
+                                    @can('create users')
+                                        <li><a href="{{ route('users.create') }}" class="dropdown-item"><i class="fas fa-user-plus mr-2 text-success"></i> Add User</a></li>
+                                    @endcan
+                                </ul>
+                            </li>
+                        @endcanany
 
-                    {{-- Departments: only for users with manage departments permission --}}
-                    @can('manage departments')
-                        <li class="nav-item dropdown">
-                            <a id="dropdownDepts" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                               class="nav-link dropdown-toggle {{ request()->routeIs('departments.*') ? 'active' : '' }}">
-                                <i class="fas fa-building mr-1"></i> Departments
-                            </a>
-                            <ul aria-labelledby="dropdownDepts" class="dropdown-menu border-0 shadow">
-                                <li><a href="{{ route('departments.index') }}" class="dropdown-item"><i class="fas fa-list mr-2 text-info"></i> All Departments</a></li>
-                                @can('create departments')
-                                    <li><a href="{{ route('departments.create') }}" class="dropdown-item"><i class="fas fa-plus-circle mr-2 text-success"></i> Add Department</a></li>
-                                @endcan
-                            </ul>
-                        </li>
-                    @endcan
+                        @canany(['view departments', 'manage departments'])
+                            <li class="nav-item dropdown">
+                                <a id="dropdownDepts" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                                   class="nav-link dropdown-toggle {{ request()->routeIs('departments.*') ? 'active' : '' }}">
+                                    <i class="fas fa-building mr-1"></i> Departments
+                                </a>
+                                <ul aria-labelledby="dropdownDepts" class="dropdown-menu border-0 shadow">
+                                    <li><a href="{{ route('departments.index') }}" class="dropdown-item"><i class="fas fa-list mr-2 text-info"></i> All Departments</a></li>
+                                    @can('create departments')
+                                        <li><a href="{{ route('departments.create') }}" class="dropdown-item"><i class="fas fa-plus-circle mr-2 text-success"></i> Add Department</a></li>
+                                    @endcan
+                                </ul>
+                            </li>
+                        @endcanany
 
-                    {{-- Data: Reports & Staging Pagu
-                         Reports: superadmin + manager roles + procurement
-                         Staging Pagu: superadmin + manager roles + procurement --}}
-                    @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
-                        <li class="nav-item dropdown">
-                            <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                               class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
-                                <i class="fas fa-database mr-1"></i> Data
-                                @php
-                                    try {
-                                        $navPendingCount = \Illuminate\Support\Facades\DB::connection('fat_db')
-                                            ->table('expense_stagings')->where('status', 'pending')->count();
-                                    } catch (\Exception $e) { $navPendingCount = 0; }
-                                @endphp
-                                @if($navPendingCount > 0 && Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
-                                    <span class="badge badge-warning ml-1">{{ $navPendingCount }}</span>
-                                @endif
-                            </a>
-                            <ul aria-labelledby="dropdownData" class="dropdown-menu border-0 shadow">
-                                @can('view reports')
-                                    <li>
-                                        <a href="{{ route('reports.index') }}" class="dropdown-item {{ request()->routeIs('reports.*') ? 'active' : '' }}">
-                                            <i class="fas fa-chart-line mr-2 text-info"></i> Reports
-                                        </a>
-                                    </li>
-                                @endcan
-                                @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
-                                    <li>
-                                        <a href="{{ route('staging-pagu.index') }}" class="dropdown-item {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
-                                            <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
-                                        </a>
-                                    </li>
-                                @endif
-                            </ul>
-                        </li>
+                        {{-- Data: Reports & Staging Pagu
+                             Reports: superadmin + manager roles + procurement
+                             Staging Pagu: superadmin + manager roles + procurement --}}
+                        @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                            <li class="nav-item dropdown">
+                                <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
+                                   class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                                    <i class="fas fa-database mr-1"></i> Data
+                                    @php
+                                        try {
+                                            $navPendingCount = \Illuminate\Support\Facades\DB::connection('fat_db')
+                                                ->table('expense_stagings')->where('status', 'pending')->count();
+                                        } catch (\Exception $e) { $navPendingCount = 0; }
+                                    @endphp
+                                    @if($navPendingCount > 0 && Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                                        <span class="badge badge-warning ml-1">{{ $navPendingCount }}</span>
+                                    @endif
+                                </a>
+                                <ul aria-labelledby="dropdownData" class="dropdown-menu border-0 shadow">
+                                    @can('view reports')
+                                        <li>
+                                            <a href="{{ route('reports.index') }}" class="dropdown-item {{ request()->routeIs('reports.*') ? 'active' : '' }}">
+                                                <i class="fas fa-chart-line mr-2 text-info"></i> Reports
+                                            </a>
+                                        </li>
+                                    @endcan
+                                    @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                                        <li>
+                                            <a href="{{ route('staging-pagu.index') }}" class="dropdown-item {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                                                <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
+                                            </a>
+                                        </li>
+                                    @endif
+                                </ul>
+                            </li>
+                        @endif
                     @endif
 
                     {{-- Settings: superadmin only (all sub-items require superadmin) --}}
                     @if(Auth::user()->hasRole('superadmin'))
                         <li class="nav-item dropdown">
                             <a id="dropdownSettings" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                               class="nav-link dropdown-toggle {{ request()->routeIs('settings.*') || request()->routeIs('uoms.*') || request()->routeIs('purposes.*') || request()->routeIs('master-items.*') || request()->routeIs('companies.*') ? 'active' : '' }}">
+                               class="nav-link dropdown-toggle {{ request()->routeIs('settings.*') || request()->routeIs('uoms.*') || request()->routeIs('purposes.*') || request()->routeIs('master-items.*') || request()->routeIs('companies.*') || request()->routeIs('users.*') || request()->routeIs('departments.*') || request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
                                 <i class="fas fa-cogs mr-1"></i> Settings
                             </a>
                             <ul aria-labelledby="dropdownSettings" class="dropdown-menu border-0 shadow">
                                 <li><a href="{{ route('settings.general') }}" class="dropdown-item"><i class="fas fa-sliders-h mr-2 text-secondary"></i> General Settings</a></li>
                                 <li><a href="{{ route('companies.index') }}" class="dropdown-item"><i class="fas fa-building mr-2 text-warning"></i> Company Management</a></li>
+                                
                                 <div class="dropdown-divider"></div>
+                                <h6 class="dropdown-header text-muted font-weight-bold p-1 pl-3 m-0" style="font-size: 0.72rem;">User & Org</h6>
+                                <li><a href="{{ route('users.index') }}" class="dropdown-item"><i class="fas fa-users mr-2 text-info"></i> User Management</a></li>
+                                <li><a href="{{ route('departments.index') }}" class="dropdown-item"><i class="fas fa-building mr-2 text-indigo"></i> Departments</a></li>
+
+                                <div class="dropdown-divider"></div>
+                                <h6 class="dropdown-header text-muted font-weight-bold p-1 pl-3 m-0" style="font-size: 0.72rem;">Master Data</h6>
                                 <li><a href="{{ route('uoms.index') }}" class="dropdown-item"><i class="fas fa-ruler mr-2 text-info"></i> UOM Management</a></li>
                                 <li><a href="{{ route('purposes.index') }}" class="dropdown-item"><i class="fas fa-tags mr-2 text-success"></i> Purpose Management</a></li>
                                 <li><a href="{{ route('master-items.index') }}" class="dropdown-item"><i class="fas fa-box mr-2 text-primary"></i> Master Item</a></li>
+
+                                <div class="dropdown-divider"></div>
+                                <h6 class="dropdown-header text-muted font-weight-bold p-1 pl-3 m-0" style="font-size: 0.72rem;">System Data</h6>
+                                <li><a href="{{ route('reports.index') }}" class="dropdown-item"><i class="fas fa-chart-line mr-2 text-info"></i> Reports</a></li>
+                                <li>
+                                    @php
+                                        try {
+                                            $navPendingCount = \Illuminate\Support\Facades\DB::connection('fat_db')
+                                                ->table('expense_stagings')->where('status', 'pending')->count();
+                                        } catch (\Exception $e) { $navPendingCount = 0; }
+                                    @endphp
+                                    <a href="{{ route('staging-pagu.index') }}" class="dropdown-item">
+                                        <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
+                                        @if($navPendingCount > 0)
+                                            <span class="badge badge-warning float-right">{{ $navPendingCount }}</span>
+                                        @endif
+                                    </a>
+                                </li>
                             </ul>
                         </li>
                     @endif

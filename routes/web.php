@@ -32,6 +32,7 @@ Route::middleware('auth')->group(function () {
 
     // Users
     Route::resource('users', UserController::class);
+    Route::get('api/companies/{companyId}/departments', [UserController::class, 'getDepartmentsByCompany'])->name('api.companies.departments');
 
     // Notifications
     Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');

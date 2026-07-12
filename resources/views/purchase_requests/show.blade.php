@@ -644,6 +644,7 @@
 
                                         @if(($isProcHolding || $isSuperadmin) && in_array($item->status, ['approved_proc', 'ordered', 'delivered', 'completed']))
                                             @if($isProcHolding || $isSuperadmin)
+                                                @if(in_array($item->status, ['ordered', 'delivered', 'completed']))
                                                 <form action="{{ route('purchase-requests.update-item-status', $item) }}" method="POST" class="mt-1">
                                                     @csrf
                                                     <select name="status" class="form-control form-control-sm" data-original-value="{{ $item->status }}" onchange="if(this.value === 'ordered'){ this.value = this.dataset.originalValue; $('#orderModal-{{ $item->id }}').modal('show'); } else { this.form.submit(); }">
@@ -661,14 +662,25 @@
                                                         </option>
                                                     </select>
                                                 </form>
+                                                @endif
                                                 @if($item->status === 'approved_proc')
+                                                    <div class="d-flex mt-1" style="gap: 4px;">
+                                                        <button type="button" class="btn btn-danger btn-xs flex-fill" data-toggle="modal" data-target="#rejectModal-{{ $item->id }}" title="Reject Item">
+                                                            <i class="fas fa-times-circle"></i> Reject
+                                                        </button>
+                                                        <button type="button" class="btn btn-success btn-xs flex-fill" data-toggle="modal" data-target="#orderModal-{{ $item->id }}" title="Approve & Input PO">
+                                                            <i class="fas fa-check-circle"></i> Approve
+                                                        </button>
+                                                    </div>
+                                                @endif
+                                                @if($item->status === 'ordered')
                                                     <button type="button" class="btn btn-danger btn-xs mt-1 w-100" data-toggle="modal" data-target="#rejectModal-{{ $item->id }}">
                                                         <i class="fas fa-times-circle"></i> Reject Item
                                                     </button>
                                                 @endif
                                             @endif
                                             
-                                            @if(in_array($item->status, ['approved_proc', 'ordered', 'delivered']))
+                                            @if(in_array($item->status, ['ordered', 'delivered']))
                                                 @if(!$item->po_number && ($isProcHolding || $isSuperadmin))
                                                     <button type="button" class="btn btn-warning btn-xs mt-2 w-100" data-toggle="modal" data-target="#orderModal-{{ $item->id }}">
                                                         <i class="fas fa-file-invoice"></i> 
