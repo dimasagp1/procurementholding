@@ -91,7 +91,7 @@ Route::middleware('auth')->group(function () {
 
     // Staging Pengeluaran Pagu (read from FAT DB)
     Route::get('/staging-pagu', [\App\Http\Controllers\StagingPaguController::class, 'index'])
-        ->middleware('role:superadmin|manager_fat|general_manager|operational_manager|procurement')
+        ->middleware('role:superadmin|company_admin|procurement')
         ->name('staging-pagu.index');
 
     // Company specific budget and vendor views

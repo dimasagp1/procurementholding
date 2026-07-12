@@ -399,7 +399,9 @@ class PurchaseRequestController extends Controller
             $departments = Department::where('company_id', $user->company_id)->get();
             $companies = collect();
         } else {
-            $departments = Department::all();
+            $departments = $activeCompanyId 
+                ? Department::where('company_id', $activeCompanyId)->get() 
+                : Department::all();
             $companies = \App\Models\Company::where('is_active', true)->get();
         }
 
@@ -1379,7 +1381,7 @@ class PurchaseRequestController extends Controller
 
         // Get all rejected items for this PR
         $rejectedItems = $oldPr->items()
-            ->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])
+            ->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding'])
             ->get();
 
         if ($rejectedItems->isEmpty()) {
@@ -2170,7 +2172,9 @@ class PurchaseRequestController extends Controller
             $departments = Department::where('company_id', $user->company_id)->get();
             $companies = collect();
         } else {
-            $departments = Department::all();
+            $departments = $activeCompanyId 
+                ? Department::where('company_id', $activeCompanyId)->get() 
+                : Department::all();
             $companies = \App\Models\Company::where('is_active', true)->get();
         }
         $title = "Rejected Purchase Requests";
@@ -2209,7 +2213,9 @@ class PurchaseRequestController extends Controller
             $departments = Department::where('company_id', $user->company_id)->get();
             $companies = collect();
         } else {
-            $departments = Department::all();
+            $departments = $activeCompanyId 
+                ? Department::where('company_id', $activeCompanyId)->get() 
+                : Department::all();
             $companies = \App\Models\Company::where('is_active', true)->get();
         }
         $title = "Draft Purchase Requests";
@@ -2331,7 +2337,9 @@ class PurchaseRequestController extends Controller
             $departments = Department::where('company_id', $user->company_id)->get();
             $companies = collect();
         } else {
-            $departments = Department::all();
+            $departments = $activeCompanyId 
+                ? Department::where('company_id', $activeCompanyId)->get() 
+                : Department::all();
             $companies = \App\Models\Company::where('is_active', true)->get();
         }
         $title = 'Approval Queue';
@@ -2586,122 +2594,12 @@ class PurchaseRequestController extends Controller
 
     private function syncPrExpensesWithFinance(PurchaseRequest $pr)
     {
-        $company = $pr->company;
-
-        // Guard: only sync if company has Finance integration enabled
-        if (!$company || !$company->connect_finance) {
-            return;
-        }
-
-        $apiUrl = $company->finance_api_url ?: Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = $company->finance_api_key ?: Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
-
-        if (!$apiUrl || !$apiKey) {
-            return;
-        }
-
-        $baseApiUrl = dirname($apiUrl);
-        $recordUrl = $baseApiUrl . '/record-expense';
-        $removeUrl = $baseApiUrl . '/remove-expense';
-
-        $headers = [
-            'Accept' => 'application/json',
-            'X-API-KEY' => $apiKey,
-        ];
-
-        // Group items that are actually committed/ordered (ordered, delivered, completed)
-        $committedItems = $pr->items()->whereIn('status', ['ordered', 'delivered', 'completed'])->get();
-
-        if ($committedItems->isEmpty()) {
-            try {
-                \Illuminate\Support\Facades\Http::withoutVerifying()
-                    ->withHeaders($headers)
-                    ->timeout(8)
-                    ->post($removeUrl, [
-                        'reference' => $pr->pr_number,
-                    ]);
-            } catch (\Exception $e) {
-                \Log::error("Failed to remove expense from Finance API for PR {$pr->pr_number}: " . $e->getMessage());
-            }
-            return;
-        }
-
-        $grouped = [];
-        foreach ($committedItems as $item) {
-            if (empty($item->purpose))
-                continue;
-            $price = $item->actual_price !== null ? (float) $item->actual_price : (float) $item->estimated_price;
-            $amt = (float) ($item->quantity * $price);
-            if (!isset($grouped[$item->purpose])) {
-                $grouped[$item->purpose] = [
-                    'amount' => 0,
-                    'qty' => 0,
-                    'items_detail' => []
-                ];
-            }
-            $grouped[$item->purpose]['amount'] += $amt;
-            $grouped[$item->purpose]['qty'] += (float) $item->quantity;
-            $grouped[$item->purpose]['items_detail'][] = ($item->item_name ?: 'Item') . ' (x' . (int)$item->quantity . ')';
-        }
-
-        foreach ($grouped as $purpose => $data) {
-            try {
-                $resolved = $this->getResponsibleDepartmentForPurpose($purpose, $pr->department_id, $pr->department?->name);
-
-                $itemsSummary = implode(', ', $data['items_detail']);
-                $description = "Realisasi PR {$pr->pr_number} ({$itemsSummary}) - Kategori {$purpose}";
-
-                $response = \Illuminate\Support\Facades\Http::withoutVerifying()
-                    ->withHeaders($headers)
-                    ->timeout(8)
-                    ->post($recordUrl, [
-                        'department_id' => $resolved['id'],
-                        'department_name' => $resolved['name'],
-                        'category_name' => $purpose,
-                        'amount' => $data['amount'],
-                        'qty' => $data['qty'],
-                        'date' => $pr->request_date->format('Y-m-d'),
-                        'reference' => $pr->pr_number,
-                        'description' => $description,
-                    ]);
-
-                if (!$response->successful()) {
-                    \Log::warning("Finance API record expense returned error code {$response->status()} for PR {$pr->pr_number}, category {$purpose}: " . $response->body());
-                }
-            } catch (\Exception $e) {
-                \Log::error("Failed to record expense to Finance API for PR {$pr->pr_number}, category {$purpose}: " . $e->getMessage());
-            }
-        }
+        dispatch(new \App\Jobs\SyncFinanceExpensesJob($pr->id));
     }
 
     private function removePrExpensesFromFinance(PurchaseRequest $pr)
     {
-        $company = $pr->company;
-        $apiUrl = $company && $company->finance_api_url ? $company->finance_api_url : Setting::get('finance_api_url', env('FINANCE_API_URL'));
-        $apiKey = $company && $company->finance_api_key ? $company->finance_api_key : Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
-
-        if (!$apiUrl || !$apiKey) {
-            return;
-        }
-
-        $baseApiUrl = dirname($apiUrl);
-        $removeUrl = $baseApiUrl . '/remove-expense';
-
-        $headers = [
-            'Accept' => 'application/json',
-            'X-API-KEY' => $apiKey,
-        ];
-
-        try {
-            \Illuminate\Support\Facades\Http::withoutVerifying()
-                ->withHeaders($headers)
-                ->timeout(8)
-                ->post($removeUrl, [
-                    'reference' => $pr->pr_number,
-                ]);
-        } catch (\Exception $e) {
-            \Log::error("Failed to remove expense from Finance API for PR {$pr->pr_number}: " . $e->getMessage());
-        }
+        dispatch(new \App\Jobs\SyncFinanceExpensesJob($pr->id));
     }
 
     /**

@@ -10,9 +10,22 @@ class StagingPaguController extends Controller
 {
     public function index(Request $request)
     {
+        $user = auth()->user();
+        if (!$user->hasAnyRole(['superadmin', 'company_admin', 'procurement'])) {
+            abort(403, 'Unauthorized action.');
+        }
+
         try {
-            $apiUrl = \App\Models\Setting::get('finance_api_url', env('FINANCE_API_URL'));
-            $apiKey = \App\Models\Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
+            $company = $user->company;
+            
+            // If superadmin, allow viewing switched company
+            $activeCompanyId = session('active_company_id');
+            if ($user->hasRole('superadmin') && $activeCompanyId) {
+                $company = \App\Models\Company::find($activeCompanyId);
+            }
+
+            $apiUrl = ($company && $company->finance_api_url) ? $company->finance_api_url : \App\Models\Setting::get('finance_api_url', env('FINANCE_API_URL'));
+            $apiKey = ($company && $company->finance_api_key) ? $company->finance_api_key : \App\Models\Setting::get('procurement_api_key', env('PROCUREMENT_API_KEY'));
 
             if (!$apiUrl || !$apiKey) {
                 throw new \Exception('Konfigurasi API Finance belum lengkap di Settings.');

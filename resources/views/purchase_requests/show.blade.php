@@ -178,7 +178,7 @@
                     <div class="d-flex justify-content-between align-items-center flex-wrap mb-3 section-title-row">
                         <h3 class="text-lg font-medium mb-0">Items List</h3>
                         @if($purchaseRequest->hasRejectedItems() && (Auth::id() == $purchaseRequest->user_id || Auth::user()->hasRole('superadmin')))
-                            <form action="{{ route('purchase-requests.revise-item', $purchaseRequest->items->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc'])->first()) }}" method="POST" class="form-confirm" data-message="Revise all rejected items? They will be moved to a new PR for revision.">
+                            <form action="{{ route('purchase-requests.revise-item', $purchaseRequest->items->whereIn('status', ['rejected_om', 'rejected_gm', 'rejected_proc', 'rejected_holding'])->first()) }}" method="POST" class="form-confirm" data-message="Revise all rejected items? They will be moved to a new PR for revision.">
                                 @csrf
                                 <button type="submit" class="btn btn-warning btn-sm shadow-sm">
                                     <i class="fas fa-sync-alt mr-1"></i> Revise All Rejected Items

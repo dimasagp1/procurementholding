@@ -125,8 +125,14 @@ class DashboardController extends Controller
         // Page title: company name for entity users, generic for holding/superadmin
         $isHolding = $user->hasAnyRole(['superadmin', 'procurement_holding']);
         if ($isHolding) {
-            $pageTitle = 'Overview — Holding';
-            $pageSubtitle = null;
+            if ($activeCompanyId) {
+                $selectedCompany = \App\Models\Company::find($activeCompanyId);
+                $pageTitle = 'Overview — ' . ($selectedCompany ? $selectedCompany->code : 'Holding');
+                $pageSubtitle = $selectedCompany ? $selectedCompany->name : null;
+            } else {
+                $pageTitle = 'Overview — Holding';
+                $pageSubtitle = null;
+            }
         } else {
             $userCompany = $user->company;
             $pageTitle = $userCompany ? $userCompany->name : 'Overview';

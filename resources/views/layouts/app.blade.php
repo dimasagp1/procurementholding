@@ -943,10 +943,63 @@
         body.light-mode #mobile-drawer .drawer-sub-link { color: #64748b; }
         body.light-mode #mobile-drawer-header { border-color: rgba(0,0,0,0.07); }
         body.light-mode #mobile-drawer-footer { border-color: rgba(0,0,0,0.07); }
+
+        /* ===== GLOBAL PRELOADER ===== */
+        .global-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #0f172a; /* Slate 900 */
+            z-index: 99999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.4s ease, visibility 0.4s ease;
+        }
+        body.light-mode .global-loader {
+            background: #f1f5f9; /* Slate 100 */
+        }
+        .global-loader-content {
+            text-align: center;
+        }
+        .global-loader-spinner {
+            width: 55px;
+            height: 55px;
+            border: 4px solid rgba(59, 130, 246, 0.1);
+            border-top-color: #3b82f6;
+            border-radius: 50%;
+            animation: spin-loader 1s infinite linear;
+            margin: 0 auto 1.25rem;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+        }
+        .global-loader-text {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            color: #94a3b8;
+        }
+        body.light-mode .global-loader-text {
+            color: #475569;
+        }
+        @keyframes spin-loader {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
     </style>
 </head>
 
 <body class="hold-transition layout-top-nav dark-mode" id="app-body">
+    <!-- Global Preloader -->
+    <div id="global-loader" class="global-loader">
+        <div class="global-loader-content">
+            <div class="global-loader-spinner"></div>
+            <div class="global-loader-text">Loading System...</div>
+        </div>
+    </div>
+
 <div class="wrapper">
 
     <!-- ===== MOBILE TOP BAR ===== -->
@@ -1296,7 +1349,7 @@
                         {{-- Data: Reports & Staging Pagu
                              Reports: superadmin + manager roles + procurement
                              Staging Pagu: superadmin + manager roles + procurement --}}
-                        @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                        @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'company_admin', 'procurement']))
                             <li class="nav-item dropdown">
                                 <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
                                    class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
@@ -1307,7 +1360,7 @@
                                                 ->table('expense_stagings')->where('status', 'pending')->count();
                                         } catch (\Exception $e) { $navPendingCount = 0; }
                                     @endphp
-                                    @if($navPendingCount > 0 && Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                                    @if($navPendingCount > 0 && Auth::user()->hasAnyRole(['superadmin', 'company_admin', 'procurement']))
                                         <span class="badge badge-warning ml-1">{{ $navPendingCount }}</span>
                                     @endif
                                 </a>
@@ -1319,7 +1372,7 @@
                                             </a>
                                         </li>
                                     @endcan
-                                    @if(Auth::user()->hasAnyRole(['superadmin', 'manager_fat', 'general_manager', 'operational_manager', 'procurement']))
+                                    @if(Auth::user()->hasAnyRole(['superadmin', 'company_admin', 'procurement']))
                                         <li>
                                             <a href="{{ route('staging-pagu.index') }}" class="dropdown-item {{ request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
                                                 <i class="fas fa-boxes mr-2 text-warning"></i> Staging Pagu
@@ -1784,6 +1837,46 @@
                 .catch(error => console.error('Error checking notifications:', error));
         }, 2000);
 
+        // Global Preloader Hide
+        const loader = document.getElementById('global-loader');
+        if (loader) {
+            setTimeout(function() {
+                loader.style.opacity = '0';
+                loader.style.visibility = 'hidden';
+                setTimeout(function() {
+                    loader.remove();
+                }, 400);
+            }, 250);
+        }
+
+        // Global Button Loading State on Form Submit
+        document.querySelectorAll('form').forEach(form => {
+            if (form.classList.contains('form-confirm')) {
+                return; // Handled below inside confirmation Swal
+            }
+            
+            form.addEventListener('submit', function(e) {
+                const submitButtons = form.querySelectorAll('button[type="submit"], input[type="submit"]');
+                submitButtons.forEach(btn => {
+                    // Show spinner immediately
+                    const spinnerIcon = btn.querySelector('.fa-spin') || btn.querySelector('.fas');
+                    if (spinnerIcon) {
+                        spinnerIcon.className = 'fas fa-spinner fa-spin mr-1';
+                    } else {
+                        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> ' + btn.textContent.trim();
+                    }
+
+                    // Disable button on the next tick of the event loop.
+                    // This prevents browser from excluding the clicked button's name & value from the request payload.
+                    setTimeout(() => {
+                        btn.disabled = true;
+                        btn.classList.add('disabled');
+                    }, 0);
+                });
+            });
+        });
+
+        // Form confirmation using SweetAlert (disables button & shows spinner upon confirmation)
         document.querySelectorAll('.form-confirm').forEach(form => {
             form.addEventListener('submit', function(e) {
                 e.preventDefault();
@@ -1802,6 +1895,14 @@
                     color: '#f8fafc'
                 }).then((result) => {
                     if (result.isConfirmed) {
+                        const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+                        if (submitBtn) {
+                            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Processing...';
+                            setTimeout(() => {
+                                submitBtn.disabled = true;
+                                submitBtn.classList.add('disabled');
+                            }, 0);
+                        }
                         this.submit();
                     }
                 });

@@ -115,20 +115,24 @@ class OdooService
      */
     public function getOrCreatePartner($name)
     {
-        $partnerIds = $this->execute('res.partner', 'search', [
-            [['name', '=', $name], ['supplier_rank', '>', 0]]
-        ]);
+        $cacheKey = 'odoo_partner_' . md5($name);
 
-        if (!empty($partnerIds)) {
-            return $partnerIds[0];
-        }
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDays(7), function () use ($name) {
+            $partnerIds = $this->execute('res.partner', 'search', [
+                [['name', '=', $name], ['supplier_rank', '>', 0]]
+            ]);
 
-        // Buat vendor baru jika belum ada
-        return $this->execute('res.partner', 'create', [[
-            'name' => $name,
-            'supplier_rank' => 1,
-            'is_company' => true
-        ]]);
+            if (!empty($partnerIds)) {
+                return $partnerIds[0];
+            }
+
+            // Buat vendor baru jika belum ada
+            return $this->execute('res.partner', 'create', [[
+                'name' => $name,
+                'supplier_rank' => 1,
+                'is_company' => true
+            ]]);
+        });
     }
 
     /**
@@ -136,20 +140,24 @@ class OdooService
      */
     public function getOrCreateProduct($name)
     {
-        $productIds = $this->execute('product.product', 'search', [
-            [['name', '=', $name]]
-        ]);
+        $cacheKey = 'odoo_product_' . md5($name);
 
-        if (!empty($productIds)) {
-            return $productIds[0];
-        }
+        return \Illuminate\Support\Facades\Cache::remember($cacheKey, now()->addDays(7), function () use ($name) {
+            $productIds = $this->execute('product.product', 'search', [
+                [['name', '=', $name]]
+            ]);
 
-        // Buat produk baru bertipe consumable
-        return $this->execute('product.product', 'create', [[
-            'name' => $name,
-            'type' => 'consu',
-            'purchase_ok' => true
-        ]]);
+            if (!empty($productIds)) {
+                return $productIds[0];
+            }
+
+            // Buat produk baru bertipe consumable
+            return $this->execute('product.product', 'create', [[
+                'name' => $name,
+                'type' => 'consu',
+                'purchase_ok' => true
+            ]]);
+        });
     }
 
     /**
@@ -169,10 +177,12 @@ class OdooService
             $productId = $this->getOrCreateProduct($item->item_name);
 
             // Dapatkan default UoM dari produk di Odoo
-            $productData = $this->execute('product.product', 'read', [
-                [$productId], ['uom_id']
-            ]);
-            $uomId = $productData[0]['uom_id'][0] ?? null;
+            $uomId = \Illuminate\Support\Facades\Cache::remember('odoo_uom_product_' . $productId, now()->addDays(7), function () use ($productId) {
+                $productData = $this->execute('product.product', 'read', [
+                    [$productId], ['uom_id']
+                ]);
+                return $productData[0]['uom_id'][0] ?? null;
+            });
 
             $datePlanned = now()->addDays(7)->format('Y-m-d');
             if ($item->due_date) {
