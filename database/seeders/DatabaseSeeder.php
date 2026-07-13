@@ -44,22 +44,22 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($permissions as $permission) {
-            Permission::create(['name' => $permission]);
+            Permission::firstOrCreate(['name' => $permission, 'guard_name' => 'web']);
         }
 
         // Create roles
-        $superadmin = Role::create(['name' => 'superadmin']);
-        $operationalManager = Role::create(['name' => 'operational_manager']);
-        $managerFat = Role::create(['name' => 'manager_fat']);
-        $generalManager = Role::create(['name' => 'general_manager']);
-        $procurement = Role::create(['name' => 'procurement']);
-        $procurementHolding = Role::create(['name' => 'procurement_holding']);
-        $userRole = Role::create(['name' => 'user']);
+        $superadmin = Role::firstOrCreate(['name' => 'superadmin', 'guard_name' => 'web']);
+        $operationalManager = Role::firstOrCreate(['name' => 'operational_manager', 'guard_name' => 'web']);
+        $managerFat = Role::firstOrCreate(['name' => 'manager_fat', 'guard_name' => 'web']);
+        $generalManager = Role::firstOrCreate(['name' => 'general_manager', 'guard_name' => 'web']);
+        $procurement = Role::firstOrCreate(['name' => 'procurement', 'guard_name' => 'web']);
+        $procurementHolding = Role::firstOrCreate(['name' => 'procurement_holding', 'guard_name' => 'web']);
+        $userRole = Role::firstOrCreate(['name' => 'user', 'guard_name' => 'web']);
 
         // Assign permissions to roles
-        $superadmin->givePermissionTo(Permission::all());
+        $superadmin->syncPermissions(Permission::all());
 
-        $procurementHolding->givePermissionTo([
+        $procurementHolding->syncPermissions([
             'view pr',
             'edit pr',
             'approve pr',
@@ -68,7 +68,7 @@ class DatabaseSeeder extends Seeder
             'view reports',
         ]);
 
-        $operationalManager->givePermissionTo([
+        $operationalManager->syncPermissions([
             'create pr',
             'view pr',
             'edit pr',
@@ -78,7 +78,7 @@ class DatabaseSeeder extends Seeder
             'view dashboard',
         ]);
 
-        $managerFat->givePermissionTo([
+        $managerFat->syncPermissions([
             'create pr',
             'view pr',
             'edit pr',
@@ -88,7 +88,7 @@ class DatabaseSeeder extends Seeder
             'view dashboard',
         ]);
 
-        $generalManager->givePermissionTo([
+        $generalManager->syncPermissions([
             'create pr',
             'view pr',
             'edit pr',
@@ -98,7 +98,7 @@ class DatabaseSeeder extends Seeder
             'view dashboard',
         ]);
 
-        $procurement->givePermissionTo([
+        $procurement->syncPermissions([
             'create pr',
             'view pr',
             'edit pr',
@@ -109,7 +109,7 @@ class DatabaseSeeder extends Seeder
             'view reports',
         ]);
 
-        $userRole->givePermissionTo([
+        $userRole->syncPermissions([
             'create pr',
             'view pr',
             'edit pr',
@@ -127,13 +127,14 @@ class DatabaseSeeder extends Seeder
         ];
 
         foreach ($departments as $dept) {
-            Department::create($dept);
+            Department::firstOrCreate(['code' => $dept['code']], $dept);
         }
 
         // Create superadmin user
-        $superadminUser = User::create([
-            'name' => 'Super Admin',
+        $superadminUser = User::firstOrCreate([
             'email' => 'superadmin@prsystem.com',
+        ], [
+            'name' => 'Super Admin',
             'password' => Hash::make('password'),
             'employee_id' => 'SA001',
             'department_id' => 1,
@@ -143,9 +144,10 @@ class DatabaseSeeder extends Seeder
         $superadminUser->assignRole($superadmin);
 
         // Create operational manager
-        $omUser = User::create([
-            'name' => 'Operational Manager',
+        $omUser = User::firstOrCreate([
             'email' => 'om@prsystem.com',
+        ], [
+            'name' => 'Operational Manager',
             'password' => Hash::make('password'),
             'employee_id' => 'OM001',
             'department_id' => 4,
@@ -155,9 +157,10 @@ class DatabaseSeeder extends Seeder
         $omUser->assignRole($operationalManager);
 
         // Create general manager
-        $gmUser = User::create([
-            'name' => 'General Manager',
+        $gmUser = User::firstOrCreate([
             'email' => 'gm@prsystem.com',
+        ], [
+            'name' => 'General Manager',
             'password' => Hash::make('password'),
             'employee_id' => 'GM001',
             'department_id' => 1,
@@ -167,9 +170,10 @@ class DatabaseSeeder extends Seeder
         $gmUser->assignRole($generalManager);
 
         // Create procurement user
-        $procUser = User::create([
-            'name' => 'Procurement Staff',
+        $procUser = User::firstOrCreate([
             'email' => 'procurement@prsystem.com',
+        ], [
+            'name' => 'Procurement Staff',
             'password' => Hash::make('password'),
             'employee_id' => 'PROC001',
             'department_id' => 3,
@@ -179,9 +183,10 @@ class DatabaseSeeder extends Seeder
         $procUser->assignRole($procurement);
 
         // Create regular user
-        $regularUser = User::create([
-            'name' => 'Regular User',
+        $regularUser = User::firstOrCreate([
             'email' => 'user@prsystem.com',
+        ], [
+            'name' => 'Regular User',
             'password' => Hash::make('password'),
             'employee_id' => 'USR001',
             'department_id' => 2,
