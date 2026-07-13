@@ -141,6 +141,142 @@
                             </div>
                         </div>
 
+                        {{-- ═══════════════════════════════════════════════════════ --}}
+                        {{-- SECTION: Departments --}}
+                        {{-- ═══════════════════════════════════════════════════════ --}}
+                        <hr class="my-4">
+                        <h5 class="text-info mb-1"><i class="bi bi-diagram-3-fill me-2"></i>Departments <small class="text-muted fw-normal">(opsional)</small></h5>
+                        <p class="text-muted small mb-3">Kelola departments untuk perusahaan ini. Hapus baris untuk menghapus department (tidak dapat dihapus jika sudah digunakan).</p>
+
+                        <div id="departments-container">
+                            @if(old('departments'))
+                                @foreach(old('departments') as $i => $dept)
+                                <div class="row dept-row mb-2 align-items-center">
+                                    <input type="hidden" name="departments[{{ $i }}][id]" value="{{ $dept['id'] ?? '' }}">
+                                    <div class="col-md-2">
+                                        <input type="text" class="form-control form-control-sm @error('departments.'.$i.'.code') is-invalid @enderror"
+                                            name="departments[{{ $i }}][code]" placeholder="Kode" maxlength="10"
+                                            value="{{ $dept['code'] ?? '' }}">
+                                        @error('departments.'.$i.'.code') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm @error('departments.'.$i.'.name') is-invalid @enderror"
+                                            name="departments[{{ $i }}][name]" placeholder="Nama Department"
+                                            value="{{ $dept['name'] ?? '' }}">
+                                        @error('departments.'.$i.'.name') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm"
+                                            name="departments[{{ $i }}][manager]" placeholder="Nama Manager (opsional)"
+                                            value="{{ $dept['manager'] ?? '' }}">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="button" class="btn btn-outline-danger btn-sm btn-remove-dept">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                @endforeach
+                            @elseif($departments->isNotEmpty())
+                                @foreach($departments as $i => $dept)
+                                <div class="row dept-row mb-2 align-items-center">
+                                    <input type="hidden" name="departments[{{ $i }}][id]" value="{{ $dept->id }}">
+                                    <div class="col-md-2">
+                                        <input type="text" class="form-control form-control-sm"
+                                            name="departments[{{ $i }}][code]" placeholder="Kode" maxlength="10"
+                                            value="{{ $dept->code }}">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm"
+                                            name="departments[{{ $i }}][name]" placeholder="Nama Department"
+                                            value="{{ $dept->name }}">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm"
+                                            name="departments[{{ $i }}][manager]" placeholder="Nama Manager (opsional)"
+                                            value="{{ $dept->manager }}">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="button" class="btn btn-outline-danger btn-sm btn-remove-dept">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                @endforeach
+                            @else
+                                <div class="row dept-row mb-2 align-items-center">
+                                    <input type="hidden" name="departments[0][id]" value="">
+                                    <div class="col-md-2">
+                                        <input type="text" class="form-control form-control-sm" name="departments[0][code]" placeholder="Kode" maxlength="10">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm" name="departments[0][name]" placeholder="Nama Department">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <input type="text" class="form-control form-control-sm" name="departments[0][manager]" placeholder="Nama Manager (opsional)">
+                                    </div>
+                                    <div class="col-md-2">
+                                        <button type="button" class="btn btn-outline-danger btn-sm btn-remove-dept">
+                                            <i class="bi bi-trash"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+
+                        <button type="button" class="btn btn-outline-info btn-sm mt-1" id="btn-add-dept">
+                            <i class="bi bi-plus-circle me-1"></i> Tambah Department
+                        </button>
+
+                        {{-- ═══════════════════════════════════════════════════════ --}}
+                        {{-- SECTION: Company Admin --}}
+                        {{-- ═══════════════════════════════════════════════════════ --}}
+                        <hr class="my-4">
+                        <h5 class="text-warning mb-1"><i class="bi bi-person-gear me-2"></i>Company Admin <small class="text-muted fw-normal">(opsional)</small></h5>
+                        <p class="text-muted small mb-3">Buat atau perbarui akun admin untuk mengelola users dan departemen di perusahaan ini. Bisa dilewati dan dibuat nanti.</p>
+
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Nama Lengkap Admin</label>
+                                <input type="text" class="form-control @error('admin_name') is-invalid @enderror"
+                                    name="admin_name" value="{{ old('admin_name', $admin ? $admin->name : '') }}" placeholder="e.g. Andi Wijaya">
+                                @error('admin_name') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Email Admin</label>
+                                <input type="email" class="form-control @error('admin_email') is-invalid @enderror"
+                                    name="admin_email" value="{{ old('admin_email', $admin ? $admin->email : '') }}" placeholder="admin@perusahaan.com">
+                                @error('admin_email') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Employee ID</label>
+                                <input type="text" class="form-control @error('admin_employee_id') is-invalid @enderror"
+                                    name="admin_employee_id" value="{{ old('admin_employee_id', $admin ? $admin->employee_id : '') }}" placeholder="ADM-001">
+                                @error('admin_employee_id') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Password <small class="text-muted">(kosongkan jika tidak ingin mengubah)</small></label>
+                                <input type="password" class="form-control @error('admin_password') is-invalid @enderror"
+                                    name="admin_password" placeholder="••••••••">
+                                @error('admin_password') <div class="invalid-feedback">{{ $message }}</div> @enderror
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">Posisi / Jabatan</label>
+                                <input type="text" class="form-control"
+                                    name="admin_position" value="{{ old('admin_position', $admin ? $admin->position : '') }}" placeholder="Company Administrator">
+                            </div>
+
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label">No. Telepon</label>
+                                <input type="text" class="form-control"
+                                    name="admin_phone" value="{{ old('admin_phone', $admin ? $admin->phone : '') }}" placeholder="08xxxxxxxxxx">
+                            </div>
+                        </div>
+
                         <div class="mt-4">
                             <button type="submit" class="btn btn-primary">Update Company</button>
                             <a href="{{ route('companies.index') }}" class="btn btn-secondary">Cancel</a>
@@ -238,6 +374,50 @@
                     });
                 });
             }
+
+            // ─── Dynamic Department Rows ───────────────────────────────────────
+            let deptIndex = {{ old('departments') ? count(old('departments')) : ($departments->isNotEmpty() ? count($departments) : 1) }};
+
+            document.getElementById('btn-add-dept').addEventListener('click', function () {
+                const container = document.getElementById('departments-container');
+                const row = document.createElement('div');
+                row.className = 'row dept-row mb-2 align-items-center';
+                row.innerHTML = `
+                    <input type="hidden" name="departments[${deptIndex}][id]" value="">
+                    <div class="col-md-2">
+                        <input type="text" class="form-control form-control-sm" name="departments[${deptIndex}][code]" placeholder="Kode" maxlength="10">
+                    </div>
+                    <div class="col-md-4">
+                        <input type="text" class="form-control form-control-sm" name="departments[${deptIndex}][name]" placeholder="Nama Department">
+                    </div>
+                    <div class="col-md-4">
+                        <input type="text" class="form-control form-control-sm" name="departments[${deptIndex}][manager]" placeholder="Nama Manager (opsional)">
+                    </div>
+                    <div class="col-md-2">
+                        <button type="button" class="btn btn-outline-danger btn-sm btn-remove-dept">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>`;
+                container.appendChild(row);
+                deptIndex++;
+                bindRemoveButtons();
+            });
+
+            function bindRemoveButtons() {
+                document.querySelectorAll('.btn-remove-dept').forEach(btn => {
+                    btn.onclick = function () {
+                        const rows = document.querySelectorAll('.dept-row');
+                        if (rows.length > 1) {
+                            this.closest('.dept-row').remove();
+                        } else {
+                            // Kosongkan saja jika tinggal 1 baris
+                            this.closest('.dept-row').querySelectorAll('input').forEach(i => i.value = '');
+                        }
+                    };
+                });
+            }
+
+            bindRemoveButtons();
         });
     </script>
     @endpush
