@@ -672,4 +672,56 @@ class SettingController extends Controller
         }
     }
 
+    public function myCompanySettings()
+    {
+        $user = Auth::user();
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'Anda tidak terikat ke perusahaan manapun.');
+        }
+
+        return view('settings.my-company', compact('company'));
+    }
+
+    public function updateMyCompanySettings(Request $request)
+    {
+        $user = Auth::user();
+        $company = $user->company;
+
+        if (!$company) {
+            abort(404, 'Anda tidak terikat ke perusahaan manapun.');
+        }
+
+        $validated = $request->validate([
+            'connect_odoo'    => 'required|boolean',
+            'connect_finance' => 'required|boolean',
+            'odoo_url'         => 'nullable|url|max:255',
+            'odoo_db'          => 'nullable|string|max:255',
+            'odoo_username'    => 'nullable|string|max:255',
+            'odoo_password'    => 'nullable|string|max:255',
+            'odoo_company_id'  => 'nullable|integer',
+            'finance_api_url'  => 'nullable|url|max:255',
+            'finance_api_key'  => 'nullable|string|max:255',
+        ]);
+
+        $company->update([
+            'connect_odoo'    => $request->boolean('connect_odoo', false),
+            'connect_finance' => $request->boolean('connect_finance', false),
+            'odoo_url'        => $validated['odoo_url'] ?? null,
+            'odoo_db'         => $validated['odoo_db'] ?? null,
+            'odoo_username'   => $validated['odoo_username'] ?? null,
+            'odoo_company_id' => $validated['odoo_company_id'] ?? null,
+            'finance_api_url' => $validated['finance_api_url'] ?? null,
+            'finance_api_key' => $validated['finance_api_key'] ?? null,
+        ]);
+
+        if (!empty($validated['odoo_password'])) {
+            $company->update(['odoo_password' => $validated['odoo_password']]);
+        }
+
+        return redirect()->back()->with('success', 'Pengaturan integrasi perusahaan berhasil diperbarui.');
+    }
+
 }
+

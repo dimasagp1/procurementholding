@@ -197,6 +197,17 @@
                 </li>
 
 
+                @if(Auth::user()->hasRole('company_admin'))
+                <li class="nav-header">COMPANY SETTINGS</li>
+                <li class="nav-item">
+                    <a href="{{ route('settings.my-company') }}" class="nav-link {{ request()->routeIs('settings.my-company') ? 'active' : '' }}">
+                        <i class="nav-icon fas fa-plug"></i>
+                        <p>Company Integrations</p>
+                    </a>
+                </li>
+                @endif
+
+
                 @if(Auth::user()->hasRole('superadmin'))
                 <li class="nav-header">SYSTEM</li>
                 <li class="nav-item {{ request()->routeIs('settings.*') || request()->routeIs('uoms.*') || request()->routeIs('master-items.*') || request()->routeIs('purposes.*') ? 'menu-open' : '' }}">

@@ -108,6 +108,18 @@ Route::middleware('auth')->group(function () {
         Route::post('/companies/{company}/vendors', [\App\Http\Controllers\SettingController::class, 'storeCompanyOdooVendor'])->name('companies.vendors.store');
     });
 
+    // Shared connection test routes for superadmin and company_admin
+    Route::middleware('role:superadmin|company_admin')->group(function () {
+        Route::post('/companies/test-odoo', [\App\Http\Controllers\CompanyController::class, 'testOdooConnection'])->name('companies.test-odoo');
+        Route::post('/companies/test-finance', [\App\Http\Controllers\CompanyController::class, 'testFinanceConnection'])->name('companies.test-finance');
+    });
+
+    // Company Admin Settings
+    Route::middleware('role:company_admin')->group(function () {
+        Route::get('/my-company/settings', [\App\Http\Controllers\SettingController::class, 'myCompanySettings'])->name('settings.my-company');
+        Route::put('/my-company/settings', [\App\Http\Controllers\SettingController::class, 'updateMyCompanySettings'])->name('settings.my-company.update');
+    });
+
     // Superadmin Settings
     Route::middleware('role:superadmin')->group(function () {
         Route::get('/settings/general', [\App\Http\Controllers\SettingController::class, 'general'])->name('settings.general');
@@ -121,8 +133,6 @@ Route::middleware('auth')->group(function () {
         Route::post('master-items/import', [\App\Http\Controllers\MasterItemController::class, 'import'])->name('master-items.import');
         Route::get('master-items/template', [\App\Http\Controllers\MasterItemController::class, 'downloadTemplate'])->name('master-items.template');
         Route::resource('master-items', \App\Http\Controllers\MasterItemController::class);
-        Route::post('/companies/test-odoo', [\App\Http\Controllers\CompanyController::class, 'testOdooConnection'])->name('companies.test-odoo');
-        Route::post('/companies/test-finance', [\App\Http\Controllers\CompanyController::class, 'testFinanceConnection'])->name('companies.test-finance');
         Route::resource('companies', \App\Http\Controllers\CompanyController::class);
     });
 
