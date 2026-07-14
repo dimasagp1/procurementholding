@@ -1352,7 +1352,7 @@
                         @if(Auth::user()->can('view reports') || Auth::user()->hasAnyRole(['superadmin', 'company_admin', 'procurement']))
                             <li class="nav-item dropdown">
                                 <a id="dropdownData" href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false"
-                                   class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') ? 'active' : '' }}">
+                                   class="nav-link dropdown-toggle {{ request()->routeIs('reports.*') || request()->routeIs('staging-pagu.*') || request()->routeIs('settings.my-company') || request()->routeIs('companies.budget') || request()->routeIs('companies.vendors') ? 'active' : '' }}">
                                     <i class="fas fa-database mr-1"></i> Data
                                     @php
                                         try {
@@ -1379,15 +1379,29 @@
                                             </a>
                                         </li>
                                     @endif
+                                    @if(Auth::user()->hasRole('company_admin'))
+                                        <div class="dropdown-divider"></div>
+                                        <li>
+                                            <a href="{{ route('settings.my-company') }}" class="dropdown-item {{ request()->routeIs('settings.my-company') ? 'active' : '' }}">
+                                                <i class="fas fa-plug mr-2 text-primary"></i> Company Integrations
+                                            </a>
+                                        </li>
+                                        @if(Auth::user()->company_id && Auth::user()->company->connect_finance)
+                                            <li>
+                                                <a href="{{ route('companies.budget', Auth::user()->company_id) }}" class="dropdown-item {{ request()->routeIs('companies.budget') ? 'active' : '' }}">
+                                                    <i class="fas fa-coins mr-2 text-success"></i> Finance Budget
+                                                </a>
+                                            </li>
+                                        @endif
+                                        @if(Auth::user()->company_id && Auth::user()->company->connect_odoo)
+                                            <li>
+                                                <a href="{{ route('companies.vendors', Auth::user()->company_id) }}" class="dropdown-item {{ request()->routeIs('companies.vendors') ? 'active' : '' }}">
+                                                    <i class="fas fa-address-book mr-2 text-warning"></i> Odoo Vendors
+                                                </a>
+                                            </li>
+                                        @endif
+                                    @endif
                                 </ul>
-                            </li>
-                        @endif
-
-                        @if(Auth::user()->hasRole('company_admin'))
-                            <li class="nav-item">
-                                <a href="{{ route('settings.my-company') }}" class="nav-link {{ request()->routeIs('settings.my-company') ? 'active' : '' }}">
-                                    <i class="fas fa-plug mr-1"></i> Company Integrations
-                                </a>
                             </li>
                         @endif
                     @endif

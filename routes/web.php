@@ -103,7 +103,7 @@ Route::middleware('auth')->group(function () {
     Route::post('/companies/{company}/budget-sync-departments', [\App\Http\Controllers\SettingController::class, 'syncCompanyDepartments'])->name('companies.budget-sync-departments');
 
     // Odoo Vendors
-    Route::middleware('role:superadmin|procurement|procurement_holding')->group(function () {
+    Route::middleware('role:superadmin|procurement|procurement_holding|company_admin')->group(function () {
         Route::get('/companies/{company}/vendors', [\App\Http\Controllers\SettingController::class, 'companyOdooVendors'])->name('companies.vendors');
         Route::post('/companies/{company}/vendors', [\App\Http\Controllers\SettingController::class, 'storeCompanyOdooVendor'])->name('companies.vendors.store');
     });
