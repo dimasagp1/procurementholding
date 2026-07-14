@@ -1382,6 +1382,14 @@
                                 </ul>
                             </li>
                         @endif
+
+                        @if(Auth::user()->hasRole('company_admin'))
+                            <li class="nav-item">
+                                <a href="{{ route('settings.my-company') }}" class="nav-link {{ request()->routeIs('settings.my-company') ? 'active' : '' }}">
+                                    <i class="fas fa-plug mr-1"></i> Company Integrations
+                                </a>
+                            </li>
+                        @endif
                     @endif
 
                     {{-- Settings: superadmin only (all sub-items require superadmin) --}}
